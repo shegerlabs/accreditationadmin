@@ -57,16 +57,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			roles: {
 				some: {
 					name: {
-						in: [
-							'admin',
-							'mofa-validator',
-							'mofa-printer',
-							'niss-validator',
-							'et-broadcast',
-							'first-validator',
-							'second-validator',
-							'printer',
-						],
+						in: ['admin', 'first-validator', 'second-validator', 'printer'],
 					},
 				},
 			},

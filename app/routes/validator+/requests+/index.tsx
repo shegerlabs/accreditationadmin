@@ -12,10 +12,6 @@ import { validatorWizard } from '~/utils/registration.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'mofa-validator',
-		'niss-validator',
-		'mofa-printer',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 		'printer',

@@ -30,7 +30,7 @@ export const ParticipantPrintSchema = z.object({
 })
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await requireUserWithRoles(request, ['mofa-printer', 'printer'])
+	const user = await requireUserWithRoles(request, ['printer'])
 	const formData = await request.formData()
 	checkHoneypot(formData)
 	await validateCSRF(formData, request.headers)
@@ -79,7 +79,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await requireUserWithRoles(request, ['mofa-printer', 'printer'])
+	const user = await requireUserWithRoles(request, ['printer'])
 	const userRoles = await prisma.user.findUniqueOrThrow({
 		where: { id: user.id },
 		include: {

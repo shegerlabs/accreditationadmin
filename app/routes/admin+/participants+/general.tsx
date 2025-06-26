@@ -17,9 +17,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		'focal',
 		'admin',
 		'reviewer',
-		'mofa-validator',
-		'niss-validator',
-		'mofa-printer',
 		'first-validator',
 		'second-validator',
 		'printer',
@@ -48,9 +45,9 @@ export async function action({ request }: ActionFunctionArgs) {
 		'focal',
 		'admin',
 		'reviewer',
-		'mofa-validator',
-		'niss-validator',
-		'mofa-printer',
+		'first-validator',
+		'second-validator',
+		'printer',
 	])
 	const { save, nextStep, prevStep, destroy } =
 		await registrationWizard.register(request)

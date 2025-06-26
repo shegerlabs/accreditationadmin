@@ -15,7 +15,7 @@ export const ParticipantApprovalSchema = z.object({
 })
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['mofa-printer', 'printer'])
+	await requireUserWithRoles(request, ['printer'])
 	const { participantId } = params
 
 	const participant = await prisma.participant.findUnique({

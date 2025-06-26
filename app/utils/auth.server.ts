@@ -533,9 +533,6 @@ export async function userIsValidator(request: Request) {
 						in: [
 							'admin',
 							'reviewer',
-							'mofa-validator',
-							'niss-validator',
-							'mofa-printer',
 							'first-validator',
 							'second-validator',
 							'printer',

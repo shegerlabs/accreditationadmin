@@ -5,10 +5,6 @@ import { requireUserWithRoles } from '~/utils/auth.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, [
-		'mofa-validator',
-		'mofa-printer',
-		'niss-validator',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 		'printer',

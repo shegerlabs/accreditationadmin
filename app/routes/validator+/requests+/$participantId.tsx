@@ -40,10 +40,6 @@ export const ParticipantApprovalSchema = z.object({
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'mofa-validator',
-		'niss-validator',
-		'mofa-printer',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 		'printer',
@@ -183,10 +179,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'mofa-validator',
-		'niss-validator',
-		'mofa-printer',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 		'printer',
@@ -276,13 +268,7 @@ export default function ParticipantProfile() {
 						<p className="text-xl text-gray-600">{professional.jobTitle}</p>
 					</div>
 					<div className="mt-4 flex space-x-2 sm:mt-0">
-						{userHasRoles(user, [
-							'mofa-validator',
-							'niss-validator',
-							'et-broadcast',
-							'first-validator',
-							'second-validator',
-						]) && (
+						{userHasRoles(user, ['first-validator', 'second-validator']) && (
 							<>
 								<Button size="sm" variant="outline" asChild>
 									<Link to={`/validator/requests/${general.id}/approve`}>
@@ -297,7 +283,7 @@ export default function ParticipantProfile() {
 							</>
 						)}
 
-						{userHasRoles(user, ['mofa-printer', 'printer']) && (
+						{userHasRoles(user, ['printer']) && (
 							<>
 								<Button size="sm" variant="outline" asChild>
 									<Link to={`/validator/requests/${general.id}/badge`}>

@@ -13,10 +13,6 @@ import { WishlistEditor, WishlistEditorSchema } from './__wishlist-editor'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'mofa-validator',
-		'niss-validator',
-		'mofa-printer',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 		'printer',
@@ -63,10 +59,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'mofa-validator',
-		'niss-validator',
-		'mofa-printer',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 		'printer',

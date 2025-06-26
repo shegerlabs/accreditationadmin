@@ -10,17 +10,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		throw redirect('/admin/events')
 	}
 
-	if (
-		userHasRoles(user, [
-			'mofa-validator',
-			'mofa-printer',
-			'niss-validator',
-			'et-broadcast',
-			'first-validator',
-			'second-validator',
-			'printer',
-		])
-	) {
+	if (userHasRoles(user, ['first-validator', 'second-validator', 'printer'])) {
 		throw redirect('/validator/requests')
 	}
 

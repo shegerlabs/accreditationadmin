@@ -28,10 +28,6 @@ import { requireRecentVerification } from '~/utils/verification.server'
 export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, [
 		'admin',
-		'mofa-validator',
-		'mofa-printer',
-		'niss-validator',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 		'printer',
@@ -44,10 +40,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export async function action({ request }: ActionFunctionArgs) {
 	await requireUserWithRoles(request, [
 		'admin',
-		'mofa-validator',
-		'mofa-printer',
-		'niss-validator',
-		'et-broadcast',
+		'first-validator',
+		'second-validator',
+		'printer',
 	])
 	const userId = await requireUserId(request)
 	await requireRecentVerification({ request, userId })

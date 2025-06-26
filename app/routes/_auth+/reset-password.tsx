@@ -78,10 +78,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	const hasRoles = userHasRoles(user, [
 		'admin',
-		'mofa-validator',
-		'niss-validator',
-		'mofa-printer',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 		'printer',

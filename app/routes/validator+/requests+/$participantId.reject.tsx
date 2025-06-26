@@ -36,9 +36,6 @@ export const ParticipantRejectionSchema = z.object({
 
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'mofa-validator',
-		'niss-validator',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 	])
@@ -100,9 +97,6 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'mofa-validator',
-		'niss-validator',
-		'et-broadcast',
 		'first-validator',
 		'second-validator',
 	])
