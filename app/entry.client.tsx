@@ -30,11 +30,16 @@ import { hydrateRoot } from 'react-dom/client'
 // 	})
 // })
 
+// Ensure React is properly loaded before hydration
 startTransition(() => {
-	hydrateRoot(
-		document,
-		<StrictMode>
-			<RemixBrowser />
-		</StrictMode>,
-	)
+	try {
+		hydrateRoot(
+			document,
+			<StrictMode>
+				<RemixBrowser />
+			</StrictMode>,
+		)
+	} catch (error) {
+		console.error('Hydration error:', error)
+	}
 })
