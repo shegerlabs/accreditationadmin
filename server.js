@@ -116,6 +116,33 @@ if (viteDevServer) {
 		'/assets',
 		express.static('build/client/assets', { immutable: true, maxAge: '1y' }),
 	)
+
+	// Handle Vite dependency chunks that might be requested with the old path
+	app.use(
+		'/node_modules/.vite/deps',
+		express.static('build/client/assets', { immutable: true, maxAge: '1y' }),
+	)
+
+	// Catch any other Vite chunk requests and serve from assets
+	app.use((req, res, next) => {
+		if (
+			req.path.includes('/node_modules/.vite/') ||
+			req.path.includes('chunk-')
+		) {
+			// Extract the filename from the path
+			const filename = req.path.split('/').pop()
+			if (filename) {
+				// Try to serve from assets directory
+				return res.sendFile(filename, { root: 'build/client/assets' }, err => {
+					if (err) {
+						// If file not found, continue to next middleware
+						return next()
+					}
+				})
+			}
+		}
+		next()
+	})
 }
 
 // Everything else (like favicon.ico) is cached for an hour. You may want to be
@@ -181,6 +208,18 @@ app.get('/up', (req, res) => {
 
 // handle SSR requests - this should always be last
 app.all('*', remixHandler)
+
+// Error handling middleware for debugging
+app.use((err, req, res, next) => {
+	console.error('Error:', err)
+	res.status(500).send('Internal Server Error')
+})
+
+// 404 handler for debugging
+app.use((req, res) => {
+	console.log('404 Not Found:', req.method, req.path)
+	res.status(404).send('Not Found')
+})
 
 const port = process.env.PORT || 8080
 app.listen(port, () =>
