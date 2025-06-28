@@ -7,10 +7,6 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 const MODE = process.env.NODE_ENV
 
 export default defineConfig({
-	base: '/',
-	optimizeDeps: {
-		include: ['react', 'react-dom'],
-	},
 	build: {
 		chunkSizeWarningLimit: 2000,
 		cssMinify: MODE === 'production',
