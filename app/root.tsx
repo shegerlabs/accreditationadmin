@@ -29,6 +29,7 @@ import {
 } from 'remix-utils/csrf/react'
 import { HoneypotProvider } from 'remix-utils/honeypot/react'
 import faviconAssetUrl from './assets/favicon.svg'
+import logoAssetUrl from './assets/logo.svg'
 import { GeneralErrorBoundary } from './components/error-boundary'
 import { useToast } from './components/toaster'
 import { Icon, href as iconsHref } from './components/ui/icon'
@@ -233,7 +234,11 @@ export default function App() {
 											to="/"
 											className="flex items-center font-semibold text-primary-foreground"
 										>
-											<Icon name="emblem" className="h-16 w-16" />
+											<img
+												src={logoAssetUrl}
+												alt="Logo"
+												className="h-16 w-16"
+											/>
 											<span className="text-sm">Accreditation</span>
 										</Link>
 									</div>
@@ -407,7 +412,7 @@ export default function App() {
 										to="/"
 										className="flex items-center gap-2 font-semibold text-primary-foreground"
 									>
-										<Icon name="emblem" className="h-16 w-16" />
+										<img src={logoAssetUrl} alt="Logo" className="h-16 w-16" />
 										<span className="text-sm">Accreditation</span>
 									</Link>
 								)}
