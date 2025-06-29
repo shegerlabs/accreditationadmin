@@ -101,7 +101,7 @@ async function handleRejection(
 				role: { name: 'first-validator' },
 			},
 		})
-		newStatus = RequestStatus.INPROGRESS // Keep IN PROGRESS status when going to First Validator
+		// newStatus = RequestStatus.INPROGRESS // Keep IN PROGRESS status when going to First Validator
 	}
 	// If rejected from First Validator, go to Request Received with REJECTED status
 	else if (currentStep.role.name === 'first-validator') {

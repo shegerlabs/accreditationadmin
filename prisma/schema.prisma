@@ -603,6 +603,54 @@ model Approval {
   @@unique([participantId, stepId, userId, createdAt])
 }
 
+model Draft {
+  id                String  @id @default(cuid())
+  userId            String  @unique
+  tenantId          String  @default("")
+  eventId           String  @default("")
+  participantTypeId String  @default("")
+  invitationId      String?
+
+  // General Info
+  requestFor     String?  @default("MYSELF") // Can be "MYSELF" or "OTHERS"
+  gender         String   @default("")
+  title          String   @default("")
+  firstName      String   @default("")
+  familyName     String   @default("")
+  dateOfBirth    DateTime @default(now())
+  nationalityId  String   @default("")
+  passportNumber String   @default("")
+  passportExpiry DateTime @default(now())
+
+  // Professional Info
+  organization      String  @default("")
+  jobTitle          String  @default("")
+  countryId         String  @default("")
+  city              String  @default("")
+  email             String  @default("")
+  website           String?
+  telephone         String?
+  address           String?
+  preferredLanguage String?
+
+  // Wishlist
+  needsVisa             Boolean   @default(false)
+  needsCarPass          Boolean   @default(false)
+  vehicleType           String?
+  vehiclePlateNumber    String?
+  needsCarFromOrganizer Boolean   @default(false)
+  flightNumber          String?
+  arrivalDate           DateTime?
+  wishList              String?
+
+  // Metadata
+  lastUpdated DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+
+  @@index([expiresAt])
+}
+
 model AuditLog {
   id          String          @id @default(cuid())
   tenantId    String?

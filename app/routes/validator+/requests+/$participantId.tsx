@@ -22,6 +22,7 @@ import {
 import { parseWithZod } from 'node_modules/@conform-to/zod/parse'
 import { z } from 'zod'
 import { DocumentPreview } from '~/components/document-preview'
+import { Alert, AlertDescription, AlertTitle } from '~/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '~/components/ui/avatar'
 import { Button } from '~/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
@@ -255,6 +256,14 @@ export default function ParticipantProfile() {
 
 	return (
 		<div className="container mx-auto px-4">
+			{approvals?.[0]?.result === 'FAILURE' && (
+				<Alert variant="destructive">
+					<AlertTitle>Request Rejected</AlertTitle>
+					<AlertDescription>
+						{(approvals[0].remarks ?? '').replace(/^Request Rejected:\s*/, '')}
+					</AlertDescription>
+				</Alert>
+			)}
 			<div className="px-4 py-8 sm:px-4 lg:px-4">
 				<div className="mb-6 flex flex-col sm:flex-row sm:items-center">
 					<Avatar className="h-24 w-24 ring-4 ring-gray-200 sm:h-32 sm:w-32">
