@@ -1,17 +1,25 @@
-import { useForm } from '@conform-to/react'
+import { getFormProps, getInputProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
 import { Constraint, ParticipantType, Restriction } from '@prisma/client'
 import { SerializeFrom } from '@remix-run/node'
-import { useActionData, useOutletContext, useParams } from '@remix-run/react'
+import { Form, useActionData, useNavigate, useOutletContext, useParams } from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { z } from 'zod'
-import { InputField } from '~/components/conform/InputField'
 import { SelectField } from '~/components/conform/SelectField'
-import { FormCard } from '~/components/form-card'
 import { Field, FieldError } from '~/components/forms'
+import { Button } from '~/components/ui/button'
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '~/components/ui/dialog'
+import { Input } from '~/components/ui/input'
 import { Label } from '~/components/ui/label'
-import { xssTransform } from '~/utils/validations'
+import { useIsPending } from '~/utils/misc'
 import { type action } from './__constraint-editor.server'
 
 export const ConstraintEditorSchema = z.object({
@@ -22,19 +30,25 @@ export const ConstraintEditorSchema = z.object({
 		required_error: 'Participant Type is required',
 	}),
 	restrictionId: z.string({ required_error: 'Restriction is required' }),
-	accessLevel: z.enum(['FREE', 'OPEN', 'CLOSED']),
-	quota: z.string().optional().transform(xssTransform),
+	accessLevel: z.enum(['OPEN', 'CLOSED']),
+	quota: z.string().optional(),
 })
 
 export const ConstraintDeleteSchema = z.object({
 	id: z.string(),
+	name: z.string(),
+	tenantId: z.string(),
+	participantTypeId: z.string(),
+	restrictionId: z.string(),
+	accessLevel: z.string(),
+	quota: z.string().optional(),
 })
 
 export function ConstraintEditor({
 	constraint,
 	restriction,
 	title,
-	intent,
+	intent = 'add',
 }: {
 	constraint?: SerializeFrom<
 		Pick<
@@ -56,11 +70,15 @@ export function ConstraintEditor({
 		participantTypes: ParticipantType[]
 	}>()
 	const actionData = useActionData<typeof action>()
-	const disabled = intent === 'delete'
-	const schema =
-		intent === 'delete' ? ConstraintDeleteSchema : ConstraintEditorSchema
+	const isPending = useIsPending()
+	const navigate = useNavigate()
+	const { eventId, restrictionId } = useParams()
+
+	const isDelete = intent === 'delete'
+	const schema = isDelete ? ConstraintDeleteSchema : ConstraintEditorSchema
+
 	const [form, fields] = useForm({
-		id: 'register-constraint',
+		id: 'constraint-editor',
 		constraint: getZodConstraint(schema),
 		lastResult: actionData?.result,
 		onValidate({ formData }) {
@@ -73,83 +91,157 @@ export function ConstraintEditor({
 			tenantId: restriction.tenantId,
 			restrictionId: restriction.id,
 			participantTypeId: constraint?.participantTypeId,
+			quota: constraint?.quota?.toString() ?? '',
 		},
 	})
 
-	const { eventId, restrictionId } = useParams()
+	const handleClose = () =>
+		navigate(`/admin/events/${eventId}/restrictions/${restrictionId}/constraints`)
 
 	return (
-		<FormCard
-			title={title}
-			description={
-				intent === 'delete'
-					? 'Are you sure you want to delete this constraint? This action cannot be undone.'
-					: undefined
-			}
-			formId={form.id}
-			onSubmit={form.onSubmit}
-			buttons={[
-				{
-					label: intent === 'delete' ? 'Delete' : 'Save',
-					intent: intent,
-					variant: intent === 'delete' ? 'destructive' : 'default',
-					type: 'submit',
-				},
-				{
-					label: 'Cancel',
-					to: `/admin/events/${eventId}/restrictions/${restrictionId}/constraints`,
-					type: 'link',
-				},
-			]}
-		>
-			<AuthenticityTokenInput />
-			<HoneypotInputs />
-			<InputField meta={fields.id} type="hidden" />
-			<InputField meta={fields.tenantId} type="hidden" />
-			<InputField meta={fields.restrictionId} type="hidden" />
+		<Dialog open={true} onOpenChange={handleClose}>
+			<DialogContent
+				className="sm:max-w-[500px]"
+				onInteractOutside={e => e.preventDefault()}
+			>
+				<DialogHeader>
+					<DialogTitle>{title}</DialogTitle>
+					<DialogDescription>
+						{isDelete
+							? 'Are you sure you want to delete this constraint? This action cannot be undone.'
+							: intent === 'edit'
+								? 'Update the constraint details below.'
+								: 'Fill in the details to create a new constraint.'}
+					</DialogDescription>
+				</DialogHeader>
 
-			<Field>
-				<Label htmlFor={fields.name.id}>Name</Label>
-				<InputField
-					meta={fields.name}
-					type="text"
-					autoComplete="off"
-					disabled={disabled}
-				/>
-				{fields.name.errors && <FieldError>{fields.name.errors}</FieldError>}
-			</Field>
+				<Form method="POST" {...getFormProps(form)}>
+					<AuthenticityTokenInput />
+					<HoneypotInputs />
 
-			<Field>
-				<Label htmlFor={fields.participantTypeId.id}>Participant Type</Label>
-				<SelectField
-					meta={fields.participantTypeId}
-					items={participantTypes.map(participantType => ({
-						name: participantType.name,
-						value: participantType.id,
-					}))}
-					disabled={disabled}
-					placeholder="Select Participant Type"
-				/>
-			</Field>
+					<input
+						{...getInputProps(fields.id, { type: 'hidden' })}
+						key={fields.id.key}
+					/>
+					<input
+						{...getInputProps(fields.tenantId, { type: 'hidden' })}
+						key={fields.tenantId.key}
+					/>
+					<input
+						{...getInputProps(fields.restrictionId, { type: 'hidden' })}
+						key={fields.restrictionId.key}
+					/>
+					<input type="hidden" name="intent" value={intent} />
 
-			<Field>
-				<Label htmlFor={fields.accessLevel.id}>Access Level</Label>
-				<SelectField
-					meta={fields.accessLevel}
-					items={['FREE', 'OPEN', 'CLOSED'].map(accessLevel => ({
-						name: accessLevel,
-						value: accessLevel,
-					}))}
-					disabled={disabled}
-					placeholder="Select Access Level"
-				/>
-			</Field>
+					{isDelete && (
+						<>
+							<input
+								{...getInputProps(fields.name, { type: 'hidden' })}
+								key={fields.name.key}
+							/>
+							<input
+								{...getInputProps(fields.participantTypeId, { type: 'hidden' })}
+								key={fields.participantTypeId.key}
+							/>
+							<input
+								{...getInputProps(fields.accessLevel, { type: 'hidden' })}
+								key={fields.accessLevel.key}
+							/>
+							<input
+								{...getInputProps(fields.quota, { type: 'hidden' })}
+								key={fields.quota.key}
+							/>
+						</>
+					)}
 
-			<Field>
-				<Label htmlFor={fields.quota.id}>Quota</Label>
-				<InputField meta={fields.quota} type="number" disabled={disabled} />
-				{fields.quota.errors && <FieldError>{fields.quota.errors}</FieldError>}
-			</Field>
-		</FormCard>
+					{!isDelete && (
+						<div className="grid gap-4 py-4">
+							<Field>
+								<Label htmlFor={fields.name.id}>Name</Label>
+								<Input
+									{...getInputProps(fields.name, { type: 'text' })}
+									key={fields.name.key}
+									autoComplete="off"
+								/>
+								{fields.name.errors && (
+									<FieldError>{fields.name.errors}</FieldError>
+								)}
+							</Field>
+
+							<Field>
+								<Label htmlFor={fields.participantTypeId.id}>
+									Participant Type
+								</Label>
+								<SelectField
+									meta={fields.participantTypeId}
+									items={participantTypes.map(participantType => ({
+										name: participantType.name,
+										value: participantType.id,
+									}))}
+									placeholder="Select Participant Type"
+								/>
+								{fields.participantTypeId.errors && (
+									<FieldError>{fields.participantTypeId.errors}</FieldError>
+								)}
+							</Field>
+
+							<Field>
+								<Label htmlFor={fields.accessLevel.id}>Access Level</Label>
+								<SelectField
+									meta={fields.accessLevel}
+									items={['OPEN', 'CLOSED'].map(accessLevel => ({
+										name: accessLevel,
+										value: accessLevel,
+									}))}
+									placeholder="Select Access Level"
+								/>
+								{fields.accessLevel.errors && (
+									<FieldError>{fields.accessLevel.errors}</FieldError>
+								)}
+							</Field>
+
+							<Field>
+								<Label htmlFor={fields.quota.id}>Quota</Label>
+								<Input
+									{...getInputProps(fields.quota, { type: 'number' })}
+									key={fields.quota.key}
+								/>
+								{fields.quota.errors && (
+									<FieldError>{fields.quota.errors}</FieldError>
+								)}
+							</Field>
+						</div>
+					)}
+
+					{isDelete && (
+						<div className="py-4">
+							<p className="text-sm text-muted-foreground">
+								This will permanently delete this constraint. This action cannot
+								be undone.
+							</p>
+						</div>
+					)}
+
+					<DialogFooter>
+						<Button type="button" variant="outline" onClick={handleClose}>
+							Cancel
+						</Button>
+						<Button
+							type="submit"
+							variant={isDelete ? 'destructive' : 'default'}
+							disabled={isPending}
+						>
+							{isPending
+								? isDelete
+									? 'Deleting...'
+									: 'Saving...'
+								: isDelete
+									? 'Delete'
+									: 'Save'}
+						</Button>
+					</DialogFooter>
+				</Form>
+			</DialogContent>
+		</Dialog>
 	)
 }

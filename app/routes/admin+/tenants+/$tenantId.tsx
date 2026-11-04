@@ -1,6 +1,14 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { Link, Outlet, useLoaderData, useLocation } from '@remix-run/react'
-import { Building2, CalendarDays, Edit, FileText, MapPin } from 'lucide-react'
+import {
+	Building2,
+	CalendarDays,
+	CreditCard,
+	Edit,
+	FileText,
+	GitBranch,
+	MapPin,
+} from 'lucide-react'
 import { Button } from '~/components/ui/button'
 import {
 	Card,
@@ -11,14 +19,16 @@ import {
 } from '~/components/ui/card'
 import { ScrollArea } from '~/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger } from '~/components/ui/tabs'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
-
 	const { tenantId } = params
+	invariantResponse(tenantId, 'Tenant ID required', { status: 400 })
+
+	// Validates user has access to this specific tenant
+	await requireAdminAccess(request, tenantId)
 
 	const tenant = await prisma.tenant.findUnique({
 		where: { id: tenantId },
@@ -41,8 +51,9 @@ export default function TenantDetailsRoute() {
 	const tabs = [
 		{ name: 'Overview', path: '.', icon: Building2 },
 		{ name: 'Meeting Types', path: 'meeting-types', icon: CalendarDays },
+		{ name: 'Workflows', path: 'workflow-templates', icon: GitBranch },
+		{ name: 'Badges', path: 'badge-templates', icon: CreditCard },
 		{ name: 'Participant Types', path: 'participant-types', icon: FileText },
-		{ name: 'Venues', path: 'venues', icon: MapPin },
 	]
 
 	const currentTab =

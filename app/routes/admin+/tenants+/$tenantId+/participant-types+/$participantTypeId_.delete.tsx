@@ -7,7 +7,7 @@ import { ParticipantTypeEditor } from './__participant-type-editor'
 export { action } from './__participant-type-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId, participantTypeId } = params
 

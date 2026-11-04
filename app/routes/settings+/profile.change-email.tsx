@@ -24,7 +24,7 @@ import {
 } from '~/components/ui/card'
 import { Label } from '~/components/ui/label'
 import { StatusButton } from '~/components/ui/status-button'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { requireUserId } from '~/utils/auth.server'
 import { newEmailAddressSessionKey } from '~/utils/constants'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
@@ -42,12 +42,12 @@ const ChangeEmailSchema = z.object({
 })
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await requireUserWithRoles(request, [
-		'admin',
-		'first-validator',
-		'second-validator',
-		'printer',
-	])
+	const userId = await requireUserId(request)
+
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		select: { id: true, email: true, username: true },
+	})
 
 	if (!user) {
 		const params = new URLSearchParams({ redirectTo: request.url })
@@ -58,12 +58,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await requireUserWithRoles(request, [
-		'admin',
-		'first-validator',
-		'second-validator',
-		'printer',
-	])
+	const userId = await requireUserId(request)
 
 	const formData = await request.formData()
 	await validateCSRF(formData, request.headers)
@@ -97,10 +92,9 @@ export async function action({ request }: ActionFunctionArgs) {
 	const { email } = submission.value
 
 	const { verifyUrl, redirectTo, otp } = await prepareVerification({
-		period: 10 * 60,
 		request,
 		type: 'change-email',
-		target: user.id,
+		target: userId,
 	})
 
 	const response = await sendEmailAzure({

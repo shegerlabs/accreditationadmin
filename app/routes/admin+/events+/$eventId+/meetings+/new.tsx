@@ -1,13 +1,13 @@
 import { json, LoaderFunctionArgs } from '@remix-run/node'
 import { useLoaderData } from '@remix-run/react'
-import { requireUserWithRole } from '~/utils/auth.server'
+import { requireUserWithRoles } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 import { MeetingEditor } from './__meeting-editor'
 export { action } from './__meeting-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRole(request, 'admin')
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { eventId } = params
 

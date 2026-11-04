@@ -25,8 +25,6 @@ export const ParticipantTypeEditorSchema = z.object({
 		.string({ required_error: 'Description is required' })
 		.transform(xssTransform),
 	priority: z.enum(['HIGH', 'MEDIUM', 'LOW']),
-	canSendPrivateRequest: z.boolean().optional(),
-	canSendAnonymousRequest: z.boolean().optional(),
 	isExemptedFromFullQuota: z.boolean().optional(),
 	isExemptedFromOpenSessionQuota: z.boolean().optional(),
 	isExemptedFromClosedSessionQuota: z.boolean().optional(),
@@ -49,7 +47,6 @@ export function ParticipantTypeEditor({
 	title: string
 	intent?: 'add' | 'edit' | 'delete'
 }) {
-	console.log('xxx', tenant)
 	const actionData = useActionData<typeof action>()
 	const disabled = intent === 'delete'
 	const schema =
@@ -140,31 +137,6 @@ export function ParticipantTypeEditor({
 				)}
 			</Field>
 
-			<Field>
-				<div className="flex items-center gap-2">
-					<CheckboxField
-						meta={fields.canSendPrivateRequest}
-						disabled={disabled}
-					/>
-					<Label htmlFor={fields.canSendPrivateRequest.id}>
-						Can Send Private Request
-					</Label>
-				</div>
-				{fields.canSendPrivateRequest.errors && (
-					<FieldError>{fields.canSendPrivateRequest.errors}</FieldError>
-				)}
-			</Field>
-			<Field>
-				<div className="flex items-center gap-2">
-					<CheckboxField
-						meta={fields.canSendAnonymousRequest}
-						disabled={disabled}
-					/>
-					<Label htmlFor={fields.canSendAnonymousRequest.id}>
-						Can Send Anonymous Request
-					</Label>
-				</div>
-			</Field>
 			<Field>
 				<div className="flex items-center gap-2">
 					<CheckboxField

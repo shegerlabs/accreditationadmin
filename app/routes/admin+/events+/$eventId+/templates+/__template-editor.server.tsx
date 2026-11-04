@@ -1,7 +1,10 @@
 import { parseWithZod } from '@conform-to/zod'
 import { createId as cuid } from '@paralleldrive/cuid2'
+import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
+import { auditRequest } from '~/utils/audit.server'
+import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
@@ -19,6 +22,8 @@ import {
 } from './__template-editor'
 
 export async function action({ request }: ActionFunctionArgs) {
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
+
 	const formData = await request.formData()
 	checkHoneypot(formData)
 	await validateCSRF(formData, request.headers)
@@ -38,6 +43,11 @@ export async function action({ request }: ActionFunctionArgs) {
 			)
 		}
 
+		const templateToDelete = await prisma.template.findUnique({
+			where: { id: submission.value.id },
+			select: { id: true, name: true, eventId: true, tenantId: true, event: { select: { name: true } } },
+		})
+
 		const template = await prisma.template.delete({
 			where: { id: submission.value.id },
 			select: { id: true, eventId: true },
@@ -46,6 +56,17 @@ export async function action({ request }: ActionFunctionArgs) {
 		await deleteDirectory({
 			containerName: 'accreditation',
 			directoryName: `templates/${template.id}`,
+		})
+
+		await auditRequest({
+			request,
+			action: AuditAction.DELETE,
+			entityType: AuditEntityType.TEMPLATE,
+			entityId: submission.value.id,
+			description: `Deleted template "${templateToDelete?.name}" from event "${templateToDelete?.event.name}"`,
+			userId: user.id,
+			tenantId: templateToDelete?.tenantId,
+			metadata: { template: templateToDelete },
 		})
 
 		return redirectWithToast(`/admin/events/${template.eventId}/templates`, {
@@ -141,6 +162,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		id: templateId,
 		updatedAttachments,
 		newAttachments,
+		badgeTemplateId,
 		...data
 	} = submission.value
 
@@ -159,6 +181,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			...data,
 			name,
 			description,
+			badgeTemplateId: badgeTemplateId ?? null,
 			attachments: {
 				create: newAttachments.map(({ blob, ...attachment }) => attachment),
 			},
@@ -167,6 +190,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			...data,
 			name,
 			description,
+			badgeTemplateId: badgeTemplateId ?? null,
 			attachments: {
 				deleteMany: { id: { notIn: updatedAttachments.map(i => i.id) } },
 				updateMany: updatedAttachments.map(({ blob, ...updates }) => ({
@@ -215,9 +239,29 @@ export async function action({ request }: ActionFunctionArgs) {
 		...newAttachmentsPromises,
 	])
 
+	const isUpdate = !!templateId
+	const event = await prisma.event.findUnique({
+		where: { id: data.eventId },
+		select: { name: true },
+	})
+
+	await auditRequest({
+		request,
+		action: isUpdate ? AuditAction.UPDATE : AuditAction.CREATE,
+		entityType: AuditEntityType.TEMPLATE,
+		entityId: template.id,
+		description: `${isUpdate ? 'Updated' : 'Created'} template "${name}" for event "${event?.name}"`,
+		userId: user.id,
+		tenantId: data.tenantId,
+		metadata: {
+			template: { id: template.id, name, ...data },
+			participantType: participantType.name,
+		},
+	})
+
 	return redirectWithToast(`/admin/events/${data.eventId}/templates`, {
 		type: 'success',
-		title: `Template ${templateId ? 'Updated' : 'Created'}`,
-		description: `Template ${templateId ? 'updated' : 'created'} successfully.`,
+		title: `Template ${isUpdate ? 'Updated' : 'Created'}`,
+		description: `Template ${isUpdate ? 'updated' : 'created'} successfully.`,
 	})
 }

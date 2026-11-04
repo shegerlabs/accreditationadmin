@@ -28,12 +28,15 @@ import {
 } from '~/components/ui/card'
 import { Label } from '~/components/ui/label'
 import { StatusButton } from '~/components/ui/status-button'
+import { AuditAction, AuditEntityType } from '@prisma/client'
+import { auditRequest } from '~/utils/audit.server'
 import { login, requireAnonymous, sessionKey } from '~/utils/auth.server'
 import {
 	rememberMeSessionKey,
 	twoFAVerificationType,
 	unverifiedSessionIdKey,
 } from '~/utils/constants'
+import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { useIsPending } from '~/utils/misc'
 import { sessionStorage } from '~/utils/session.server'
@@ -81,6 +84,27 @@ export async function action({ request }: ActionFunctionArgs) {
 						return z.NEVER
 					}
 
+					// Check if user has an allowed role (not just 'user' or 'focal')
+					const allowedRoles = ['admin', 'tenant', 'validator', 'reviewer', 'printer', 'dispatcher', 'checkpoint']
+					const userWithRoles = await prisma.user.findUnique({
+						where: { id: session.userId },
+						select: { roles: { select: { name: true } } },
+					})
+
+					const hasAllowedRole = userWithRoles?.roles.some(role =>
+						allowedRoles.includes(role.name),
+					)
+
+					if (!hasAllowedRole) {
+						// Delete the session we just created
+						await prisma.session.delete({ where: { id: session.id } })
+						ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							message: 'You do not have permission to access this platform',
+						})
+						return z.NEVER
+					}
+
 					return { ...data, session }
 				} catch (error) {
 					// Handle lockout errors
@@ -98,6 +122,27 @@ export async function action({ request }: ActionFunctionArgs) {
 	})
 
 	if (submission.status !== 'success' || !submission.value.session) {
+		// Log failed login attempt
+		const username = formData.get('username')?.toString()
+		if (username) {
+			const user = await prisma.user.findUnique({
+				where: { username },
+				select: { id: true, tenantId: true },
+			})
+			await auditRequest({
+				request,
+				action: AuditAction.LOGIN_FAILED,
+				entityType: AuditEntityType.USER,
+				entityId: user?.id,
+				description: `Failed login attempt for username: ${username}`,
+				tenantId: user?.tenantId,
+				metadata: {
+					username,
+					reason: user ? 'Invalid password' : 'User not found',
+				},
+			})
+		}
+
 		return json(
 			{ result: submission.reply({ hideFields: ['password'] }) },
 			{ status: submission.status === 'error' ? 400 : 200 },
@@ -105,6 +150,12 @@ export async function action({ request }: ActionFunctionArgs) {
 	}
 
 	const { session, remember, redirectTo } = submission.value
+
+	// Fetch user details for audit log
+	const user = await prisma.user.findUnique({
+		where: { id: session.userId },
+		select: { id: true, username: true, email: true, name: true, tenantId: true },
+	})
 
 	if (await shouldRequestTwoFA({ request, userId: session.userId })) {
 		const verifySession = await verifySessionStorage.getSession()
@@ -118,6 +169,23 @@ export async function action({ request }: ActionFunctionArgs) {
 			redirectTo,
 		})
 
+		// Log login with 2FA pending
+		await auditRequest({
+			request,
+			action: AuditAction.LOGIN,
+			entityType: AuditEntityType.SESSION,
+			entityId: session.id,
+			description: `Login initiated for ${user?.username} - awaiting 2FA verification`,
+			userId: session.userId,
+			tenantId: user?.tenantId,
+			metadata: {
+				user: { id: user?.id, username: user?.username, email: user?.email },
+				sessionId: session.id,
+				rememberMe: remember,
+				twoFactorRequired: true,
+			},
+		})
+
 		return redirect(redirectUrl.toString(), {
 			headers: {
 				'set-cookie': await verifySessionStorage.commitSession(verifySession),
@@ -128,6 +196,23 @@ export async function action({ request }: ActionFunctionArgs) {
 			request.headers.get('cookie'),
 		)
 		cookieSession.set(sessionKey, session.id)
+
+		// Log successful login
+		await auditRequest({
+			request,
+			action: AuditAction.LOGIN,
+			entityType: AuditEntityType.SESSION,
+			entityId: session.id,
+			description: `Successful login for ${user?.username}`,
+			userId: session.userId,
+			tenantId: user?.tenantId,
+			metadata: {
+				user: { id: user?.id, username: user?.username, email: user?.email },
+				sessionId: session.id,
+				rememberMe: remember,
+				twoFactorRequired: false,
+			},
+		})
 
 		return redirect(safeRedirect(redirectTo), {
 			headers: {

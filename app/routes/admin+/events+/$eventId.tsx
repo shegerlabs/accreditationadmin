@@ -1,40 +1,32 @@
-import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
+import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { Link, Outlet, useLoaderData, useLocation } from '@remix-run/react'
 import {
+	ArrowLeft,
 	CalendarDays,
 	CheckCircle,
 	CircleDot,
 	Edit,
 	FileImage,
 	FileText,
+	Globe,
+	Lock,
 	Mail,
+	RefreshCw,
+	Trash2,
+	Users,
 	Workflow,
 } from 'lucide-react'
-import { ActionForm } from '~/components/action-form'
+import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
+import { Alert, AlertTitle } from '~/components/ui/alert'
 import { Button } from '~/components/ui/button'
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '~/components/ui/card'
 import { ScrollArea } from '~/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger } from '~/components/ui/tabs'
-import { requireUserWithRoles } from '~/utils/auth.server'
-import { validateCSRF } from '~/utils/csrf.server'
+import { requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 
-type EventActionArgs = {
-	request: Request
-	eventId: string
-	formData: FormData
-}
-
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
-
+	const currentUser = await requireAdminAccess(request)
 	const { eventId } = params
 
 	const event = await prisma.event.findUnique({
@@ -54,62 +46,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	invariantResponse(event, 'Not Found', { status: 404 })
 
-	return json({ event })
-}
-
-const publishEventActionIntent = 'publish'
-const closeEventActionIntent = 'close'
-const reopenEventActionIntent = 'reopen'
-
-export async function action({ request, params }: ActionFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
-	const { eventId } = params
-	invariantResponse(eventId, 'Event ID not found', { status: 404 })
-
-	const formData = await request.formData()
-	await validateCSRF(formData, request.headers)
-	const intent = formData.get('intent')
-	switch (intent) {
-		case publishEventActionIntent: {
-			return publishEventAction({ request, eventId, formData })
-		}
-		case closeEventActionIntent: {
-			return closeEventAction({ request, eventId, formData })
-		}
-		case reopenEventActionIntent: {
-			return reopenEventAction({ request, eventId, formData })
-		}
-		default: {
-			throw new Response(`Invalid intent "${intent}"`, { status: 400 })
-		}
+	// Prevent accessing deleted events from the main details page
+	if (event.deletedAt) {
+		throw json({ message: 'This event has been deleted' }, { status: 410 })
 	}
-}
 
-async function publishEventAction({ eventId }: EventActionArgs) {
-	await prisma.event.update({
-		where: { id: eventId },
-		data: { status: 'PUBLISHED' },
-	})
-
-	return json({ status: 'success' } as const)
-}
-
-async function closeEventAction({ eventId }: EventActionArgs) {
-	await prisma.event.update({
-		where: { id: eventId },
-		data: { status: 'COMPLETED' },
-	})
-
-	return json({ status: 'success' } as const)
-}
-
-async function reopenEventAction({ eventId }: EventActionArgs) {
-	await prisma.event.update({
-		where: { id: eventId },
-		data: { status: 'PUBLISHED' },
-	})
-
-	return json({ status: 'success' } as const)
+	// Tenant admins can only access their own tenant's events
+	if (!currentUser.isGlobalAdmin && event.tenantId !== currentUser.tenantId) {
+		throw json({ message: 'Access denied' }, { status: 403 })
+	}
+	return json({ event })
 }
 
 export default function EventDetailsRoute() {
@@ -118,98 +64,94 @@ export default function EventDetailsRoute() {
 
 	const tabs = [
 		{ name: 'Overview', path: '.', icon: CalendarDays },
-		{ name: 'Meetings', path: 'meetings', icon: CalendarDays },
 		{ name: 'Restrictions', path: 'restrictions', icon: FileText },
 		{ name: 'Workflows', path: 'workflows', icon: Workflow },
 		{ name: 'Invitations', path: 'invitations', icon: Mail },
 		{ name: 'Templates', path: 'templates', icon: FileImage },
+		{ name: 'Access', path: 'access', icon: Users },
 	]
 
 	const currentTab =
 		tabs.find(tab => location.pathname.includes(`/${tab.path}`)) || tabs[0]
 
+	const statusConfig = {
+		DRAFT: {
+			icon: CircleDot,
+			title: 'Draft',
+			variant: 'warning' as const,
+		},
+		PUBLISHED: {
+			icon: CheckCircle,
+			title: 'Published',
+			variant: 'success' as const,
+		},
+		COMPLETED: {
+			icon: Lock,
+			title: 'Closed',
+			variant: 'muted' as const,
+		},
+	}
+
+	const status = statusConfig[event.status as keyof typeof statusConfig]
+	const StatusIcon = status.icon
+
 	return (
-		<div className="container mx-auto px-1">
-			<Card className="mb-6">
-				<CardHeader className="pb-2">
-					<div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-						<div className="flex items-center space-x-2">
-							<CardTitle className="text-2xl md:text-3xl">
-								{event.name}
-							</CardTitle>
-							{event.status === 'DRAFT' && (
-								<CircleDot className="h-4 w-4 text-orange-500" />
-							)}
-							{event.status === 'PUBLISHED' && (
-								<CheckCircle className="h-4 w-4 text-green-500" />
-							)}
-							{event.status === 'COMPLETED' && (
-								<CheckCircle className="h-4 w-4 text-red-500" />
-							)}
-						</div>
-
-						<div className="flex items-center space-x-2">
-							{event.status === 'DRAFT' && (
-								<ActionForm
-									method="POST"
-									data={{
-										eventId: event?.id,
-									}}
-									buttonContent={'Publish Event'}
-									buttonVariant="default"
-									buttonSize="sm"
-									showContentOnDoubleCheck={false}
-									intent="publish"
-								/>
-							)}
-
-							{event.status === 'PUBLISHED' && (
-								<ActionForm
-									method="POST"
-									data={{
-										eventId: event?.id,
-									}}
-									buttonContent={'Close Event'}
-									buttonVariant="destructive"
-									buttonSize="sm"
-									showContentOnDoubleCheck={false}
-									intent="close"
-								/>
-							)}
-
-							{event.status === 'COMPLETED' && (
-								<ActionForm
-									method="POST"
-									data={{
-										eventId: event?.id,
-									}}
-									buttonContent={'Reopen Event'}
-									buttonVariant="outline"
-									buttonSize="sm"
-									showContentOnDoubleCheck={false}
-									intent="reopen"
-								/>
-							)}
-
-							<Button asChild variant="outline" size="icon">
-								<Link to="edit" aria-label="Edit event">
-									<Edit className="h-4 w-4" />
+		<div>
+			{/* Dynamic Status Alert with Event Info and Actions */}
+			<Alert variant={status.variant} className="mb-6">
+				<StatusIcon className="h-5 w-5" />
+				<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<AlertTitle className="text-xl font-semibold">
+						{event.name} - {status.title}
+					</AlertTitle>
+					<div className="flex items-center gap-2">
+						{event.status === 'DRAFT' && (
+							<Button asChild size="sm">
+								<Link to="publish">
+									<Globe className="mr-2 h-4 w-4" />
+									Publish
 								</Link>
 							</Button>
-							{/* <Button asChild variant="outline" size="icon">
+						)}
+
+						{event.status === 'PUBLISHED' && (
+							<Button asChild variant="destructive" size="sm">
+								<Link to="close">
+									<Lock className="mr-2 h-4 w-4" />
+									Close
+								</Link>
+							</Button>
+						)}
+
+						{event.status === 'COMPLETED' && (
+							<Button asChild size="sm">
+								<Link to="reopen">
+									<RefreshCw className="mr-2 h-4 w-4" />
+									Reopen
+								</Link>
+							</Button>
+						)}
+
+						<Button asChild variant="outline" size="icon">
+							<Link to="edit" aria-label="Edit event">
+								<Edit className="h-4 w-4" />
+							</Link>
+						</Button>
+						{event.status === 'DRAFT' && (
+							<Button asChild variant="outline" size="icon">
 								<Link to="delete" aria-label="Delete event">
 									<Trash2 className="h-4 w-4" />
 								</Link>
-							</Button> */}
-						</div>
+							</Button>
+						)}
+						<Button asChild variant="outline" size="icon">
+							<Link to="/admin/events" aria-label="Back to events">
+								<ArrowLeft className="h-4 w-4" />
+							</Link>
+						</Button>
 					</div>
-				</CardHeader>
-				<CardContent>
-					<CardDescription className="text-sm md:text-base">
-						{event.description}
-					</CardDescription>
-				</CardContent>
-			</Card>
+				</div>
+			</Alert>
 
 			<div className="flex flex-col gap-4 sm:gap-6">
 				<Tabs value={currentTab.path} className="w-full">
@@ -238,5 +180,38 @@ export default function EventDetailsRoute() {
 				<Outlet />
 			</div>
 		</div>
+	)
+}
+
+export function ErrorBoundary() {
+	return (
+		<GeneralErrorBoundary
+			statusHandlers={{
+				404: () => (
+					<ErrorDisplay
+						title="Event Not Found"
+						message="The event you're looking for does not exist."
+						redirectUrl="/admin/events"
+						errorCode={404}
+					/>
+				),
+				403: () => (
+					<ErrorDisplay
+						title="Access Denied"
+						message="You don't have permission to access this event."
+						redirectUrl="/admin/events"
+						errorCode={403}
+					/>
+				),
+				410: () => (
+					<ErrorDisplay
+						title="Event Deleted"
+						message="This event has been deleted. You can restore it from the deleted events list."
+						redirectUrl="/admin/events/deleted"
+						errorCode={410}
+					/>
+				),
+			}}
+		/>
 	)
 }

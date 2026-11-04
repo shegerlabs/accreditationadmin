@@ -9,22 +9,10 @@ export function getBlobStorageClient() {
 	return blobServiceClient
 }
 
-export async function createContainer({
-	name,
-	metadata,
-}: {
-	name: string
-	metadata?: {
-		[key: string]: string
-	}
-}) {
+export async function ensureContainerExists(containerName: string) {
 	const blobServiceClient = getBlobStorageClient()
-	const containerClient = blobServiceClient.getContainerClient(name)
-	await containerClient.createIfNotExists({
-		metadata: {
-			...metadata,
-		},
-	})
+	const containerClient = blobServiceClient.getContainerClient(containerName)
+	await containerClient.createIfNotExists()
 }
 
 export async function uploadFile({
@@ -87,9 +75,9 @@ export async function deleteFileIfExists({
 		prefix: prefix ? `${prefix}/${fileName}` : fileName,
 	})
 
-	blobs.forEach(async blob => {
+	for (const blob of blobs) {
 		await containerClient.deleteBlob(blob)
-	})
+	}
 }
 
 export async function getBlobs({

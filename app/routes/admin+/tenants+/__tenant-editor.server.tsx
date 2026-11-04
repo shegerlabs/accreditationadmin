@@ -3,7 +3,7 @@ import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
 import { auditRequest } from '~/utils/audit.server'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { requireAdminAccess } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
@@ -11,14 +11,22 @@ import { redirectWithToast } from '~/utils/toast.server'
 import { TenantDeleteSchema, TenantEditorSchema } from './__tenant-editor'
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await requireUserWithRoles(request, ['admin'])
+	const currentUser = await requireAdminAccess(request)
 	const formData = await request.formData()
 	checkHoneypot(formData)
 	await validateCSRF(formData, request.headers)
 
 	const intent = formData.get('intent')
 
+	// Only global admins can delete tenants
 	if (intent === 'delete') {
+		if (!currentUser.isGlobalAdmin) {
+			throw json(
+				{ message: 'Only global admins can delete tenants' },
+				{ status: 403 },
+			)
+		}
+
 		const submission = await parseWithZod(formData, {
 			schema: TenantDeleteSchema,
 			async: true,
@@ -52,7 +60,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			entityType: AuditEntityType.TENANT,
 			entityId: submission.value.id,
 			description: 'Tenant deleted',
-			userId: user.id,
+			userId: currentUser.id,
 			metadata: {
 				tenant,
 			},
@@ -93,6 +101,24 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const { id: tenantId, ...data } = submission.value
 
+	// Only global admins can create new tenants
+	if (!tenantId && !currentUser.isGlobalAdmin) {
+		throw json(
+			{ message: 'Only global admins can create tenants' },
+			{ status: 403 },
+		)
+	}
+
+	// Tenant admins can only update their own tenant
+	if (tenantId && !currentUser.isGlobalAdmin) {
+		if (tenantId !== currentUser.tenantId) {
+			throw json(
+				{ message: 'You can only update your own tenant' },
+				{ status: 403 },
+			)
+		}
+	}
+
 	await prisma.tenant.upsert({
 		select: { id: true },
 		where: { id: tenantId ?? '__new_tenant__' },
@@ -115,7 +141,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		entityType,
 		entityId,
 		description,
-		userId: user.id,
+		userId: currentUser.id,
 		metadata: {
 			tenant: {
 				...data,

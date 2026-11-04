@@ -5,7 +5,7 @@ import {
 import { useRef, type ElementRef } from 'react'
 import { Switch } from '~/components/ui/switch'
 
-export function SwitchField({ meta }: { meta: FieldMetadata<boolean> }) {
+export function SwitchField({ meta }: { meta: FieldMetadata<string | boolean | undefined> }) {
 	const switchRef = useRef<ElementRef<typeof Switch>>(null)
 	const control = useControl(meta)
 

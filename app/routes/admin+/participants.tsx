@@ -1,40 +1,12 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { Outlet, useLoaderData } from '@remix-run/react'
 import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
-import Steps from '~/components/steps'
 import { requireUserWithRoles } from '~/utils/auth.server'
+import { getCachedCountries } from '~/utils/cache.server'
 import { prisma } from '~/utils/db.server'
-import { registrationWizard } from '~/utils/registration.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
-
-	const { hasData, currentStep, routes } =
-		await registrationWizard.register(request)
-	const showSteps = currentStep !== null && hasData()
-	let stepsWithStatus: Array<{
-		id: string
-		name: string
-		href: string
-		status: 'complete' | 'current' | 'upcoming'
-	}> = []
-	if (showSteps) {
-		// Define your steps here.
-		const stepsDefinition = [
-			{ id: '01', name: 'General', href: routes[0] },
-			{ id: '02', name: 'Professional', href: routes[1] },
-			{ id: '03', name: 'Wishlist', href: routes[2] },
-			{ id: '04', name: 'Documents', href: routes[3] },
-		]
-
-		// Assign status based on the current step
-		stepsWithStatus = stepsDefinition.map((step, index) => {
-			let status: 'complete' | 'current' | 'upcoming' = 'upcoming'
-			if (index < currentStep) status = 'complete'
-			else if (index === currentStep) status = 'current'
-			return { ...step, status }
-		})
-	}
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const tenants = await prisma.tenant.findMany({
 		select: {
@@ -64,12 +36,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		},
 	})
 
-	const countries = await prisma.country.findMany({
-		select: {
-			id: true,
-			name: true,
-		},
-	})
+	const countries = await getCachedCountries()
 
 	return json({
 		tenants,
@@ -77,34 +44,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		participantTypes,
 		meetingTypes,
 		countries,
-		showSteps,
-		steps: stepsWithStatus,
 	})
 }
 
 export default function ParticipantsRoute() {
-	const {
-		tenants,
-		events,
-		participantTypes,
-		meetingTypes,
-		countries,
-		showSteps,
-		steps,
-	} = useLoaderData<typeof loader>()
+	const { tenants, events, participantTypes, meetingTypes, countries } =
+		useLoaderData<typeof loader>()
 	return (
-		<div className="flex flex-col gap-4">
-			{showSteps && <Steps steps={steps} />}
-			<Outlet
-				context={{
-					tenants,
-					events,
-					participantTypes,
-					meetingTypes,
-					countries,
-				}}
-			/>
-		</div>
+		<Outlet
+			context={{
+				tenants,
+				events,
+				participantTypes,
+				meetingTypes,
+				countries,
+			}}
+		/>
 	)
 }
 
@@ -116,7 +71,7 @@ export function ErrorBoundary() {
 					<ErrorDisplay
 						title="Access Denied"
 						message="You don't have permission to view participants."
-						redirectUrl="/admin/participants/cancel"
+						redirectUrl="/admin"
 					/>
 				),
 			}}

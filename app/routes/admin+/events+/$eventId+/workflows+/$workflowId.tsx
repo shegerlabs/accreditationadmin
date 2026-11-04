@@ -1,15 +1,28 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { Outlet, useLoaderData } from '@remix-run/react'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
+import { invariantResponse } from '~/utils/misc'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const currentUser = await requireAdminAccess(request)
+	const tenantFilter = getTenantFilter(currentUser)
 
-	const { tenantId } = params
+	const { eventId } = params
+
+	// Verify the event belongs to the current user's tenant
+	const event = await prisma.event.findFirst({
+		where: {
+			id: eventId,
+			...tenantFilter,
+		},
+		select: { tenantId: true },
+	})
+
+	invariantResponse(event, 'Event not found', { status: 404 })
 
 	const participantTypes = await prisma.participantType.findMany({
-		where: { tenantId },
+		where: { tenantId: event.tenantId },
 	})
 
 	const roles = await prisma.role.findMany({

@@ -1,17 +1,26 @@
-import { useForm } from '@conform-to/react'
+import { getFormProps, getInputProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
-import { Event, Meeting, MeetingType, Tenant, Venue } from '@prisma/client'
+import { Event, Meeting, MeetingType, Venue } from '@prisma/client'
 import { SerializeFrom } from '@remix-run/node'
-import { useActionData, useOutletContext } from '@remix-run/react'
+import { Form, useActionData, useNavigate, useOutletContext } from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { z } from 'zod'
 import { DatePickerField } from '~/components/conform/DatePickerField'
-import { InputField } from '~/components/conform/InputField'
 import { SelectField } from '~/components/conform/SelectField'
-import { FormCard } from '~/components/form-card'
 import { ErrorList, Field, FieldError } from '~/components/forms'
+import { Button } from '~/components/ui/button'
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '~/components/ui/dialog'
+import { Input } from '~/components/ui/input'
 import { Label } from '~/components/ui/label'
+import { useIsPending } from '~/utils/misc'
 import { type action } from './__meeting-editor.server'
 
 export const MeetingEditorSchema = z.object({
@@ -20,20 +29,27 @@ export const MeetingEditorSchema = z.object({
 	eventId: z.string({ required_error: 'Event is required' }),
 	meetingTypeId: z.string({ required_error: 'Meeting Type is required' }),
 	venueId: z.string({ required_error: 'Venue is required' }),
-	accessLevel: z.enum(['FREE', 'OPEN', 'CLOSED', 'ALL']),
+	accessLevel: z.enum(['OPEN', 'CLOSED']),
 	startDate: z.date({ required_error: 'Start Date is required' }),
 	endDate: z.date({ required_error: 'End Date is required' }),
 })
 
 export const MeetingDeleteSchema = z.object({
 	id: z.string(),
+	tenantId: z.string(),
+	eventId: z.string(),
+	meetingTypeId: z.string(),
+	venueId: z.string(),
+	accessLevel: z.string(),
+	startDate: z.date(),
+	endDate: z.date(),
 })
 
 export function MeetingEditor({
 	event,
 	meeting,
 	title,
-	intent,
+	intent = 'add',
 }: {
 	event: SerializeFrom<Pick<Event, 'id' | 'name' | 'tenantId'>>
 	meeting?: SerializeFrom<
@@ -52,16 +68,18 @@ export function MeetingEditor({
 	intent?: 'add' | 'edit' | 'delete'
 }) {
 	const { meetingTypes, venues } = useOutletContext<{
-		tenants: Tenant[]
-		events: Event[]
 		meetingTypes: MeetingType[]
 		venues: Venue[]
 	}>()
 	const actionData = useActionData<typeof action>()
-	const disabled = intent === 'delete'
-	const schema = intent === 'delete' ? MeetingDeleteSchema : MeetingEditorSchema
+	const isPending = useIsPending()
+	const navigate = useNavigate()
+
+	const isDelete = intent === 'delete'
+	const schema = isDelete ? MeetingDeleteSchema : MeetingEditorSchema
+
 	const [form, fields] = useForm({
-		id: 'register-meeting',
+		id: 'meeting-editor',
 		constraint: getZodConstraint(schema),
 		lastResult: actionData?.result,
 		onValidate({ formData }) {
@@ -76,106 +94,170 @@ export function MeetingEditor({
 		},
 	})
 
+	const handleClose = () => navigate(`/admin/events/${event.id}/meetings`)
+
 	return (
-		<FormCard
-			title={title}
-			description={
-				intent === 'delete'
-					? 'Are you sure you want to delete this meeting? This action cannot be undone.'
-					: undefined
-			}
-			formId={form.id}
-			onSubmit={form.onSubmit}
-			buttons={[
-				{
-					label: intent === 'delete' ? 'Delete' : 'Save',
-					intent: intent,
-					variant: intent === 'delete' ? 'destructive' : 'default',
-					type: 'submit',
-				},
-				{
-					label: 'Cancel',
-					to: `/admin/events/${event.id}/meetings`,
-					type: 'link',
-				},
-			]}
-		>
-			<AuthenticityTokenInput />
-			<HoneypotInputs />
-			<InputField meta={fields.id} type="hidden" />
-			<InputField meta={fields.tenantId} type="hidden" />
-			<InputField meta={fields.eventId} type="hidden" />
+		<Dialog open={true} onOpenChange={handleClose}>
+			<DialogContent
+				className="sm:max-w-[550px]"
+				onInteractOutside={e => e.preventDefault()}
+			>
+				<DialogHeader>
+					<DialogTitle>{title}</DialogTitle>
+					<DialogDescription>
+						{isDelete
+							? 'Are you sure you want to delete this meeting? This action cannot be undone.'
+							: intent === 'edit'
+								? 'Update the meeting details below.'
+								: 'Fill in the details to create a new meeting.'}
+					</DialogDescription>
+				</DialogHeader>
 
-			<Field>
-				<Label htmlFor={fields.meetingTypeId.id}>Meeting Type</Label>
-				<SelectField
-					meta={fields.meetingTypeId}
-					items={meetingTypes.map(meetingType => ({
-						name: meetingType.name,
-						value: meetingType.id,
-					}))}
-					placeholder="Select Meeting Type"
-					disabled={disabled}
-				/>
-				{fields.meetingTypeId.errors && (
-					<FieldError>{fields.meetingTypeId.errors}</FieldError>
-				)}
-			</Field>
+				<Form method="POST" {...getFormProps(form)}>
+					<AuthenticityTokenInput />
+					<HoneypotInputs />
 
-			<Field>
-				<Label htmlFor={fields.venueId.id}>Venue</Label>
-				<SelectField
-					meta={fields.venueId}
-					items={venues.map(venue => ({
-						name: venue.name,
-						value: venue.id,
-					}))}
-					disabled={disabled}
-					placeholder="Select Venue"
-				/>
-				{fields.venueId.errors && (
-					<FieldError>{fields.venueId.errors}</FieldError>
-				)}
-			</Field>
+					<input
+						{...getInputProps(fields.id, { type: 'hidden' })}
+						key={fields.id.key}
+					/>
+					<input
+						{...getInputProps(fields.tenantId, { type: 'hidden' })}
+						key={fields.tenantId.key}
+					/>
+					<input
+						{...getInputProps(fields.eventId, { type: 'hidden' })}
+						key={fields.eventId.key}
+					/>
+					<input type="hidden" name="intent" value={intent} />
 
-			<Field>
-				<Label htmlFor={fields.accessLevel.id}>Access Level</Label>
-				<SelectField
-					meta={fields.accessLevel}
-					items={['FREE', 'OPEN', 'CLOSED', 'ALL'].map(accessLevel => ({
-						name: accessLevel,
-						value: accessLevel,
-					}))}
-					disabled={disabled}
-					placeholder="Select Access Level"
-				/>
-				{fields.accessLevel.errors && (
-					<FieldError>{fields.accessLevel.errors}</FieldError>
-				)}
-			</Field>
-
-			<div className="flex gap-4">
-				<div className="flex-1">
-					<Field>
-						<Label htmlFor={fields.startDate.id}>Start Date</Label>
-						<DatePickerField meta={fields.startDate} disabled={disabled} />
-					</Field>
-					{fields.startDate.errors && (
-						<FieldError>{fields.startDate.errors}</FieldError>
+					{isDelete && (
+						<>
+							<input
+								{...getInputProps(fields.meetingTypeId, { type: 'hidden' })}
+								key={fields.meetingTypeId.key}
+							/>
+							<input
+								{...getInputProps(fields.venueId, { type: 'hidden' })}
+								key={fields.venueId.key}
+							/>
+							<input
+								{...getInputProps(fields.accessLevel, { type: 'hidden' })}
+								key={fields.accessLevel.key}
+							/>
+							<Input
+								{...getInputProps(fields.startDate, { type: 'hidden' })}
+								key={fields.startDate.key}
+							/>
+							<Input
+								{...getInputProps(fields.endDate, { type: 'hidden' })}
+								key={fields.endDate.key}
+							/>
+						</>
 					)}
-				</div>
 
-				<div className="flex-1">
-					<Field>
-						<Label htmlFor={fields.endDate.id}>End Date</Label>
-						<DatePickerField meta={fields.endDate} disabled={disabled} />
-					</Field>
-					{fields.endDate.errors && (
-						<FieldError>{fields.endDate.errors}</FieldError>
+					{!isDelete && (
+						<div className="grid gap-4 py-4">
+							<Field>
+								<Label htmlFor={fields.meetingTypeId.id}>Meeting Type</Label>
+								<SelectField
+									meta={fields.meetingTypeId}
+									items={meetingTypes.map(meetingType => ({
+										name: meetingType.name,
+										value: meetingType.id,
+									}))}
+									placeholder="Select Meeting Type"
+								/>
+								{fields.meetingTypeId.errors && (
+									<FieldError>{fields.meetingTypeId.errors}</FieldError>
+								)}
+							</Field>
+
+							<Field>
+								<Label htmlFor={fields.venueId.id}>Venue</Label>
+								<SelectField
+									meta={fields.venueId}
+									items={venues.map(venue => ({
+										name: venue.name,
+										value: venue.id,
+									}))}
+									placeholder="Select Venue"
+								/>
+								{fields.venueId.errors && (
+									<FieldError>{fields.venueId.errors}</FieldError>
+								)}
+							</Field>
+
+							<Field>
+								<Label htmlFor={fields.accessLevel.id}>Access Level</Label>
+								<SelectField
+									meta={fields.accessLevel}
+									items={['OPEN', 'CLOSED'].map(accessLevel => ({
+										name: accessLevel,
+										value: accessLevel,
+									}))}
+									placeholder="Select Access Level"
+								/>
+								{fields.accessLevel.errors && (
+									<FieldError>{fields.accessLevel.errors}</FieldError>
+								)}
+							</Field>
+
+							<div className="flex gap-4">
+								<div className="flex-1">
+									<Field>
+										<Label htmlFor={fields.startDate.id}>Start Date</Label>
+										<DatePickerField meta={fields.startDate} />
+									</Field>
+									{fields.startDate.errors && (
+										<FieldError>{fields.startDate.errors}</FieldError>
+									)}
+								</div>
+
+								<div className="flex-1">
+									<Field>
+										<Label htmlFor={fields.endDate.id}>End Date</Label>
+										<DatePickerField meta={fields.endDate} />
+									</Field>
+									{fields.endDate.errors && (
+										<FieldError>{fields.endDate.errors}</FieldError>
+									)}
+								</div>
+							</div>
+
+							<ErrorList errors={form.errors} id={form.errorId} />
+						</div>
 					)}
-				</div>
-			</div>
-			<ErrorList errors={form.errors} id={form.errorId} />
-		</FormCard>
+
+					{isDelete && (
+						<div className="py-4">
+							<p className="text-sm text-muted-foreground">
+								This will permanently delete this meeting. This action cannot be
+								undone.
+							</p>
+						</div>
+					)}
+
+					<DialogFooter>
+						<Button type="button" variant="outline" onClick={handleClose}>
+							Cancel
+						</Button>
+						<Button
+							type="submit"
+							variant={isDelete ? 'destructive' : 'default'}
+							disabled={isPending}
+						>
+							{isPending
+								? isDelete
+									? 'Deleting...'
+									: 'Saving...'
+								: isDelete
+									? 'Delete'
+									: 'Save'}
+						</Button>
+					</DialogFooter>
+				</Form>
+			</DialogContent>
+		</Dialog>
 	)
 }

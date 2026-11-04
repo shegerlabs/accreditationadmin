@@ -1,4 +1,4 @@
-import { Action, Participant, RequestStatus, Step } from '@prisma/client'
+import { Action, Participant, Step } from '@prisma/client'
 import { prisma } from '~/utils/db.server'
 import { sendEmailAzure } from './email.server'
 
@@ -15,8 +15,7 @@ export async function processParticipant(
 		},
 	})
 
-	await logApproval(participant, userId, action, remarks)
-
+	// Execute action first, then log approval only if successful
 	switch (action) {
 		case Action.REJECT:
 			await handleRejection(participant, userId, remarks)
@@ -26,6 +25,9 @@ export async function processParticipant(
 			break
 		case Action.PRINT:
 			await handlePrint(participant)
+			break
+		case Action.COLLECT:
+			await handleCollect(participant)
 			break
 		case Action.NOTIFY:
 			await handleNotify(participant)
@@ -39,6 +41,9 @@ export async function processParticipant(
 		default:
 			throw new Error(`Unsupported action: ${action}`)
 	}
+
+	// Log approval only after action succeeds
+	await logApproval(participant, userId, action, remarks)
 }
 
 async function logApproval(
@@ -52,6 +57,7 @@ async function logApproval(
 			participantId: participant.id,
 			stepId: participant.step.id,
 			userId: userId,
+			action: action,
 			result: action === Action.REJECT ? 'FAILURE' : 'SUCCESS',
 			remarks: remarks ?? getRemarksByAction(action),
 		},
@@ -59,19 +65,24 @@ async function logApproval(
 }
 
 async function handleBypass(participant: Participant & { step: Step }) {
-	const mofaPrintStep = await prisma.step.findFirst({
+	// Find step marked as bypass target (e.g., Badge Print step)
+	const bypassTargetStep = await prisma.step.findFirst({
 		where: {
 			workflowId: participant.step.workflowId,
-			name: 'MOFA Print',
+			isBypassTarget: true,
 		},
 	})
 
-	if (!mofaPrintStep) return
+	if (!bypassTargetStep) {
+		throw new Error(
+			'No bypass target configured for this workflow. Please mark a step as the bypass target in workflow settings.',
+		)
+	}
 
 	await prisma.participant.update({
 		where: { id: participant.id },
 		data: {
-			stepId: mofaPrintStep.id,
+			stepId: bypassTargetStep.id,
 			status: 'BYPASSED',
 		},
 	})
@@ -82,60 +93,29 @@ async function handleRejection(
 	userId: string,
 	remarks?: string,
 ) {
-	// Get the current step's role
-	const currentStep = await prisma.step.findUnique({
-		where: { id: participant.step.id },
-		include: { role: true },
+	// Find step marked as rejection target (where rejected participants return)
+	const rejectionTargetStep = await prisma.step.findFirst({
+		where: {
+			workflowId: participant.step.workflowId,
+			isRejectionTarget: true,
+		},
 	})
 
-	if (!currentStep) return
-
-	let targetStep
-	let newStatus: RequestStatus = RequestStatus.REJECTED // Default status
-
-	// If rejected from Second Validator, go to First Validator and keep IN PROGRESS status
-	if (currentStep.role.name === 'second-validator') {
-		targetStep = await prisma.step.findFirst({
-			where: {
-				workflowId: participant.step.workflowId,
-				role: { name: 'first-validator' },
-			},
-		})
-		// newStatus = RequestStatus.INPROGRESS // Keep IN PROGRESS status when going to First Validator
+	if (!rejectionTargetStep) {
+		throw new Error(
+			'No rejection target configured for this workflow. Please mark a step as the rejection target in workflow settings.',
+		)
 	}
-	// If rejected from First Validator, go to Request Received with REJECTED status
-	else if (currentStep.role.name === 'first-validator') {
-		targetStep = await prisma.step.findFirst({
-			where: {
-				workflowId: participant.step.workflowId,
-				name: 'Request Received',
-			},
-		})
-		// Status remains REJECTED for First Validator rejections
-	}
-	// For any other role, go to Request Received with REJECTED status
-	else {
-		targetStep = await prisma.step.findFirst({
-			where: {
-				workflowId: participant.step.workflowId,
-				name: 'Request Received',
-			},
-		})
-		// Status remains REJECTED for other rejections
-	}
-
-	if (!targetStep) return
 
 	await prisma.participant.update({
 		where: { id: participant.id },
 		data: {
-			stepId: targetStep.id,
-			status: newStatus,
+			stepId: rejectionTargetStep.id,
+			status: 'REJECTED',
 		},
 	})
 
-	// Only send rejection email if the status is REJECTED
-	if (newStatus === RequestStatus.REJECTED) {
+	if (participant.email) {
 		await sendRejectionEmail(participant.email, remarks)
 	}
 }
@@ -172,6 +152,17 @@ async function handlePrint(participant: Participant & { step: Step }) {
 	})
 }
 
+async function handleCollect(participant: Participant & { step: Step }) {
+	// COLLECT does NOT move to next step - participant stays in current step
+	// with COLLECTED status. Admin will later archive them.
+	await prisma.participant.update({
+		where: { id: participant.id },
+		data: {
+			status: 'COLLECTED',
+		},
+	})
+}
+
 async function handleNotify(participant: Participant & { step: Step }) {
 	if (!participant.step.nextStepId) return
 
@@ -196,24 +187,80 @@ async function handleArchive(participant: Participant & { step: Step }) {
 		},
 	})
 
-	await sendFinalizationEmail(participant.email)
+	if (participant.email) {
+		await sendFinalizationEmail(participant.email)
+	}
 }
 
 function getRemarksByAction(action: Action): string {
 	switch (action) {
 		case Action.APPROVE:
-			return 'Approved successfully.'
+			return 'Request approved and forwarded to next validation stage'
 		case Action.REJECT:
-			return 'Rejected due to compliance issues.'
+			return 'Request rejected and returned to applicant for revision'
 		case Action.PRINT:
-			return 'Printed successfully.'
+			return 'Badge printed and ready for collection'
+		case Action.COLLECT:
+			return 'Badge collected by participant'
 		case Action.NOTIFY:
-			return 'Notification sent successfully.'
+			return 'Applicant notified of accreditation status'
 		case Action.ARCHIVE:
-			return 'Archived successfully.'
+			return 'Accreditation completed and archived'
+		case Action.BYPASS:
+			return 'Validation steps bypassed by administrator - sent directly to badge printing'
 		default:
-			return 'Action processed.'
+			return 'Action processed'
 	}
+}
+
+/**
+ * When a participant's type changes, find the matching step in the new type's workflow.
+ * Returns the new stepId, or null if the type didn't change.
+ * Throws if no workflow or matching step exists for the new type.
+ */
+export async function reassignParticipantStep(
+	participant: {
+		eventId: string
+		tenantId: string
+		participantTypeId: string
+		step: { name: string; workflowId: string }
+	},
+	newParticipantTypeId: string,
+): Promise<string | null> {
+	if (participant.participantTypeId === newParticipantTypeId) {
+		return null
+	}
+
+	const workflow = await prisma.workflow.findFirst({
+		where: {
+			tenantId: participant.tenantId,
+			eventId: participant.eventId,
+			participantTypeId: newParticipantTypeId,
+		},
+		select: { id: true },
+	})
+
+	if (!workflow) {
+		throw new Error(
+			'No workflow is configured for the selected participant type in this event. Please set up a workflow before changing the type.',
+		)
+	}
+
+	const matchingStep = await prisma.step.findFirst({
+		where: {
+			workflowId: workflow.id,
+			name: participant.step.name,
+		},
+		select: { id: true },
+	})
+
+	if (!matchingStep) {
+		throw new Error(
+			`The new participant type's workflow has no step named "${participant.step.name}". Cannot reassign participant.`,
+		)
+	}
+
+	return matchingStep.id
 }
 
 async function sendRejectionEmail(email: string, remarks?: string) {

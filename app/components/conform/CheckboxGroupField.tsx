@@ -17,7 +17,7 @@ export function CheckboxGroupField({
 	items,
 }: {
 	meta: FieldMetadata<string[]>
-	items: Array<{ name: string; value: string; [key: string]: any }>
+	items: Array<{ name: string; value: string; disabled?: boolean; [key: string]: any }>
 }) {
 	const initialValue =
 		typeof meta.initialValue === 'string'
@@ -31,7 +31,7 @@ export function CheckboxGroupField({
 					<TableHead className="p-2">Select</TableHead>
 					<TableHead className="p-2">Name</TableHead>
 					{Object.keys(items[0])
-						.filter(key => key !== 'name' && key !== 'value')
+						.filter(key => key !== 'name' && key !== 'value' && key !== 'disabled')
 						.map(key => (
 							<TableHead key={key} className="p-2">
 								{key}
@@ -63,6 +63,7 @@ export function CheckboxGroupField({
 										name={meta.name}
 										value={item.value}
 										checked={control.value == item.value}
+										disabled={item.disabled}
 										onCheckedChange={value =>
 											control.change(value.valueOf() ? item.value : '')
 										}
@@ -76,7 +77,7 @@ export function CheckboxGroupField({
 									</label>
 								</TableCell>
 								{Object.entries(item)
-									.filter(([key]) => key !== 'value' && key !== 'name')
+									.filter(([key]) => key !== 'value' && key !== 'name' && key !== 'disabled')
 									.map(([key, value]) => (
 										<TableCell key={key} className="p-2">
 											{value}

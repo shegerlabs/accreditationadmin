@@ -3,7 +3,6 @@ import { getZodConstraint, parseWithZod } from '@conform-to/zod'
 import { Permission, Role } from '@prisma/client'
 import { SerializeFrom } from '@remix-run/node'
 import { useActionData } from '@remix-run/react'
-import { useMediaQuery } from 'react-responsive'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { z } from 'zod'
@@ -45,7 +44,6 @@ export function RoleEditor({
 	title: string
 	intent?: 'add' | 'edit' | 'delete'
 }) {
-	const isMobile = useMediaQuery({ maxWidth: 767 })
 	const actionData = useActionData<typeof action>()
 	const disabled = intent === 'delete'
 	const schema = intent === 'delete' ? RoleDeleteSchema : RoleEditorSchema

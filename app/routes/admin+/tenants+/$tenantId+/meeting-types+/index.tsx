@@ -1,17 +1,16 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
-import { useLoaderData, useParams } from '@remix-run/react'
+import { Link, useLoaderData, useParams } from '@remix-run/react'
 import { EditIcon, TrashIcon, UserIcon } from 'lucide-react'
-import { useMediaQuery } from 'react-responsive'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 	const { tenantId } = params
 
-	const { data, totalPages, currentPage } = await filterAndPaginate({
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
 		request,
 		model: prisma.meetingType,
 		searchFields: ['name'],
@@ -24,13 +23,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		meetingTypes: data,
 		totalPages,
 		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
 	} as const)
 }
 
 export default function IndexRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage } = data
-	const isMobile = useMediaQuery({ maxWidth: 767 })
+	const { totalPages, currentPage, defaultPageSize, pageSizeOptions } = data
 	const { tenantId } = useParams()
 
 	return (
@@ -50,10 +50,10 @@ export default function IndexRoute() {
 							key: 'name',
 							header: 'Name',
 							render: (meetingType: any) => (
-								<div className="flex items-center space-x-2">
+								<Link to={`/admin/tenants/${tenantId}/meeting-types/${meetingType.id}/edit`} className="flex items-center space-x-2">
 									<UserIcon className="h-4 w-4 text-primary" />
 									<span>{meetingType.name}</span>
-								</div>
+								</Link>
 							),
 						},
 						{ key: 'description', header: 'Description' },
@@ -73,10 +73,12 @@ export default function IndexRoute() {
 						},
 					]}
 					status={data.status}
-					isMobile={isMobile}
+					
 					keyExtractor={meetingType => meetingType.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
+					defaultPageSize={defaultPageSize}
+					pageSizeOptions={pageSizeOptions}
 				/>
 			</div>
 		</div>

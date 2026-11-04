@@ -31,20 +31,6 @@ export function getDomainUrl(request: Request) {
 	return `${protocol}://${host}`
 }
 
-export function getReferrerRoute(request: Request) {
-	// spelling errors and whatever makes this annoyingly inconsistent
-	// in my own testing, `referer` returned the right value, but 🤷‍♂️
-	const referrer =
-		request.headers.get('referer') ??
-		request.headers.get('referrer') ??
-		request.referrer
-	const domain = getDomainUrl(request)
-	if (referrer?.startsWith(domain)) {
-		return referrer.slice(domain.length)
-	} else {
-		return '/'
-	}
-}
 /**
  * Merge multiple headers objects into one (uses set so headers are overridden)
  */
@@ -231,22 +217,6 @@ export function useDebounce<
 	)
 }
 
-export async function downloadFile(url: string, retries: number = 0) {
-	const MAX_RETRIES = 3
-	try {
-		const response = await fetch(url)
-		if (!response.ok) {
-			throw new Error(`Failed to fetch image with status ${response.status}`)
-		}
-		const contentType = response.headers.get('content-type') ?? 'image/jpg'
-		const blob = Buffer.from(await response.arrayBuffer())
-		return { contentType, blob }
-	} catch (e) {
-		if (retries > MAX_RETRIES) throw e
-		return downloadFile(url, retries + 1)
-	}
-}
-
 /**
  * Provide a condition and if that condition is falsey, this throws a 400
  * Response with the given message.
@@ -298,12 +268,6 @@ export function invariant(
 	if (!condition) {
 		throw new Error(typeof message === 'function' ? message() : message)
 	}
-}
-
-export function logger(obj: any, label?: string): void {
-	const logMessage = label ? `${label}:` : 'Object:'
-	console.log(logMessage)
-	console.dir(obj, { depth: Infinity })
 }
 
 export function getAttachmentFileSrc(attachmentId: string) {

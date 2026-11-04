@@ -1,6 +1,8 @@
 import { parseWithZod } from '@conform-to/zod'
+import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
+import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
@@ -12,7 +14,7 @@ import {
 } from './__meeting-type-editor'
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId } = params
 
@@ -35,8 +37,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			)
 		}
 
+		const meetingTypeToDelete = await prisma.meetingType.findUnique({
+			where: { id: submission.value.id },
+			select: { id: true, name: true, tenantId: true },
+		})
+
 		await prisma.meetingType.delete({
 			where: { id: submission.value.id },
+		})
+
+		await auditRequest({
+			request,
+			action: AuditAction.DELETE,
+			entityType: AuditEntityType.MEETING_TYPE,
+			entityId: submission.value.id,
+			description: `Deleted meeting type "${meetingTypeToDelete?.name}"`,
+			userId: user.id,
+			tenantId: meetingTypeToDelete?.tenantId || tenantId,
+			metadata: { meetingType: meetingTypeToDelete },
 		})
 
 		return redirectWithToast(`/admin/tenants/${tenantId}/meeting-types`, {
@@ -72,22 +90,40 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		)
 	}
 
-	const { id: meetingTypeId, ...data } = submission.value
+	const { id: meetingTypeId, name, description, ...data } = submission.value
+	const isUpdate = !!meetingTypeId
 
-	await prisma.meetingType.upsert({
-		select: { id: true },
+	const meetingType = await prisma.meetingType.upsert({
+		select: { id: true, name: true, tenantId: true },
 		where: { id: meetingTypeId ?? '__new_meeting_type__' },
 		create: {
 			...data,
+			name: name!,
+			description: description!,
 		},
 		update: {
 			...data,
+			name: name!,
+			description: description!,
+		},
+	})
+
+	await auditRequest({
+		request,
+		action: isUpdate ? AuditAction.UPDATE : AuditAction.CREATE,
+		entityType: AuditEntityType.MEETING_TYPE,
+		entityId: meetingType.id,
+		description: `${isUpdate ? 'Updated' : 'Created'} meeting type "${name}"`,
+		userId: user.id,
+		tenantId: meetingType.tenantId || tenantId,
+		metadata: {
+			meetingType: { id: meetingType.id, name, description, ...data },
 		},
 	})
 
 	return redirectWithToast(`/admin/tenants/${tenantId}/meeting-types`, {
 		type: 'success',
-		title: `Meeting Type ${meetingTypeId ? 'Updated' : 'Created'}`,
-		description: `Meeting Type ${meetingTypeId ? 'updated' : 'created'} successfully.`,
+		title: `Meeting Type ${isUpdate ? 'Updated' : 'Created'}`,
+		description: `Meeting Type ${isUpdate ? 'updated' : 'created'} successfully.`,
 	})
 }

@@ -1,9 +1,15 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { Outlet } from '@remix-run/react'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { requireAdminAccess } from '~/utils/auth.server'
 
-export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+export async function loader({ request, params }: LoaderFunctionArgs) {
+	const currentUser = await requireAdminAccess(request)
+	const { tenantId } = params
+
+	// Tenant admins can only access their own tenant's participant types
+	if (!currentUser.isGlobalAdmin && tenantId !== currentUser.tenantId) {
+		throw json({ message: 'Access denied' }, { status: 403 })
+	}
 
 	return json({})
 }

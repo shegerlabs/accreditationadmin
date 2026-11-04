@@ -4,11 +4,7 @@ import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
 import { requireUserWithRoles } from '~/utils/auth.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, [
-		'first-validator',
-		'second-validator',
-		'printer',
-	])
+	await requireUserWithRoles(request, ['validator', 'reviewer'])
 	return json({})
 }
 

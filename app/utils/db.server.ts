@@ -2,34 +2,50 @@ import { remember } from '@epic-web/remember'
 import { PrismaClient } from '@prisma/client'
 import { LoaderFunctionArgs } from '@remix-run/node'
 import chalk from 'chalk'
+import { getSetting, SettingKeys } from './settings.server'
 
 const prisma = remember('prisma', () => {
 	// NOTE: if you change anything in this function you'll need to restart
 	// the dev server to see your changes.
-	const logThreshold = 20
+	const isProduction = process.env.NODE_ENV === 'production'
+	const queryLogEnabled = process.env.QUERY_LOG_ENABLED !== 'false'
+	const logThreshold = process.env.QUERY_LOG_THRESHOLD
+		? parseInt(process.env.QUERY_LOG_THRESHOLD, 10)
+		: isProduction
+			? 100
+			: 20
 
 	const client = new PrismaClient({
-		log: [
-			{ level: 'query', emit: 'event' },
-			{ level: 'error', emit: 'stdout' },
-			{ level: 'warn', emit: 'stdout' },
-		],
+		log: queryLogEnabled
+			? [
+					{ level: 'query', emit: 'event' },
+					{ level: 'error', emit: 'stdout' },
+					{ level: 'warn', emit: 'stdout' },
+				]
+			: [
+					{ level: 'error', emit: 'stdout' },
+					{ level: 'warn', emit: 'stdout' },
+				],
 	})
-	client.$on('query', async e => {
-		if (e.duration < logThreshold) return
-		const color =
-			e.duration < logThreshold * 1.1
-				? 'green'
-				: e.duration < logThreshold * 1.2
-					? 'blue'
-					: e.duration < logThreshold * 1.3
-						? 'yellow'
-						: e.duration < logThreshold * 1.4
-							? 'redBright'
-							: 'red'
-		const dur = chalk[color](`${e.duration}ms`)
-		console.info(`prisma:query - ${dur} - ${e.query}`)
-	})
+
+	if (queryLogEnabled) {
+		client.$on('query', async e => {
+			if (e.duration < logThreshold) return
+			const color =
+				e.duration < logThreshold * 1.1
+					? 'green'
+					: e.duration < logThreshold * 1.2
+						? 'blue'
+						: e.duration < logThreshold * 1.3
+							? 'yellow'
+							: e.duration < logThreshold * 1.4
+								? 'redBright'
+								: 'red'
+			const dur = chalk[color](`${e.duration}ms`)
+			console.info(`prisma:query - ${dur} - ${e.query}`)
+		})
+	}
+
 	client.$connect()
 	return client
 })
@@ -111,6 +127,7 @@ interface FilterFieldOptions {
 	field: string
 	operator?: 'equals' | 'in' | 'before' | 'after' | 'array-contains' // Added array-contains operator
 	isDate?: boolean // Add this flag to indicate date fields
+	isBoolean?: boolean // Add this flag to indicate boolean fields
 }
 
 /**
@@ -366,8 +383,9 @@ function createFilterConditions(
 
 	filterFields.forEach(field => {
 		if (typeof field === 'string') {
-			const values = url.searchParams.getAll(field)
-			if (values.includes('all')) {
+			// Filter out empty strings and 'all' values
+			const values = url.searchParams.getAll(field).filter(v => v && v !== 'all' && v.trim() !== '')
+			if (values.length === 0) {
 				return
 			}
 			if (values.length === 1) {
@@ -376,34 +394,38 @@ function createFilterConditions(
 				conditions[field] = { in: values }
 			}
 		} else if (isFilterFieldOptions(field)) {
-			const { field: fieldName, operator = 'equals', isDate } = field
-			const values = url.searchParams.getAll(fieldName)
-			console.log(
-				`Filter field: ${fieldName}, operator: ${operator}, values:`,
-				values,
-			)
+			const { field: fieldName, operator = 'equals', isDate, isBoolean } = field
+			// Filter out empty strings and 'all' values
+			const values = url.searchParams.getAll(fieldName).filter(v => v && v !== 'all' && v.trim() !== '')
 
-			if (values.includes('all')) {
+			if (values.length === 0) {
 				return
 			}
 
+			// Helper to convert value based on field type
+			const convertValue = (value: string) => {
+				if (isDate) return new Date(value)
+				if (isBoolean) return value === 'true'
+				return value
+			}
+
 			if (operator === 'array-contains') {
-				if (values.length === 1 && values[0] !== 'all') {
+				if (values.length === 1) {
 					conditions[fieldName] = { contains: values[0] }
 				}
 			} else if (values.length === 1) {
 				conditions[fieldName] = {
-					[operator]: isDate ? new Date(values[0]) : values[0],
+					[operator]: convertValue(values[0]),
 				}
 			} else if (values.length > 1) {
 				if (operator === 'in') {
 					conditions[fieldName] = {
-						in: values.map(value => (isDate ? new Date(value) : value)),
+						in: values.map(convertValue),
 					}
 				} else {
 					conditions[fieldName] = {
 						OR: values.map(value => ({
-							[operator]: isDate ? new Date(value) : value,
+							[operator]: convertValue(value),
 						})),
 					}
 				}
@@ -472,13 +494,19 @@ export async function filterAndPaginate<
 	data: TResult[]
 	totalPages: number
 	currentPage: number
+	defaultPageSize: number
+	pageSizeOptions: number[]
 }> {
 	const url = new URL(request.url)
 	const searchTerm = url.searchParams.get('search') || ''
 	const page = parseInt(url.searchParams.get('page') || '1', 10)
 	const pageSizeParam = url.searchParams.get('pageSize')
+
+	// Get pagination settings
+	const defaultPageSize = await getSetting<number>(SettingKeys.PAGINATION_DEFAULT_PAGE_SIZE)
+	const pageSizeOptions = [10, 20, 50, 100] // Standard options
 	const pageSize =
-		pageSizeParam === 'All' ? undefined : parseInt(pageSizeParam || '10', 10)
+		pageSizeParam === 'All' ? undefined : parseInt(pageSizeParam || String(defaultPageSize), 10)
 
 	// Build search conditions
 	let searchConditions: SearchCondition = {}
@@ -496,24 +524,25 @@ export async function filterAndPaginate<
 		filterConditions = { AND: exactConditions }
 	}
 
-	// Combine all conditions
-	let combinedWhere: any = {
-		...where,
+	// Combine all conditions using AND to avoid overwriting OR/AND clauses
+	const andConditions: any[] = []
+
+	if (where && Object.keys(where).length > 0) {
+		andConditions.push(where)
 	}
 
 	if (searchTerm && Object.keys(searchConditions).length > 0) {
-		combinedWhere = {
-			...combinedWhere,
-			...searchConditions,
-		}
+		andConditions.push(searchConditions)
 	}
 
 	if (filterFields.length > 0 && Object.keys(filterConditions).length > 0) {
-		combinedWhere = {
-			...combinedWhere,
-			...filterConditions,
-		}
+		andConditions.push(filterConditions)
 	}
+
+	const combinedWhere: any =
+		andConditions.length > 1
+			? { AND: andConditions }
+			: andConditions[0] ?? {}
 
 	const totalItems = await model.count({ where: combinedWhere })
 
@@ -532,6 +561,8 @@ export async function filterAndPaginate<
 		data,
 		totalPages,
 		currentPage: page,
+		defaultPageSize,
+		pageSizeOptions,
 	}
 }
 

@@ -3,7 +3,6 @@ import { getZodConstraint, parseWithZod } from '@conform-to/zod'
 import { Menu, Role } from '@prisma/client'
 import { SerializeFrom } from '@remix-run/node'
 import { useActionData } from '@remix-run/react'
-import { useMediaQuery } from 'react-responsive'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { z } from 'zod'
@@ -28,6 +27,10 @@ export const MenuEditorSchema = z.object({
 	roles: z.array(z.string()).transform(val => val.map(xssTransform)),
 })
 
+export const MenuDeleteSchema = z.object({
+	id: z.string(),
+})
+
 export function MenuEditor({
 	menu,
 	roles,
@@ -43,10 +46,9 @@ export function MenuEditor({
 	title: string
 	intent?: 'add' | 'edit' | 'delete'
 }) {
-	const isMobile = useMediaQuery({ maxWidth: 767 })
 	const actionData = useActionData<typeof action>()
 	const disabled = intent === 'delete'
-	const schema = MenuEditorSchema
+	const schema = intent === 'delete' ? MenuDeleteSchema : MenuEditorSchema
 	const [form, fields] = useForm({
 		id: 'register-menu',
 		constraint: getZodConstraint(schema),

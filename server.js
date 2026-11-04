@@ -146,7 +146,19 @@ const strongRateLimit = rateLimit({
 const generalRateLimit = rateLimit(rateLimitDefault)
 
 app.use((req, res, next) => {
-	const strongPaths = []
+	const excludedPaths = ['/admin', '/printer', '/validator', '/dispatcher']
+	if (excludedPaths.some(path => req.path.startsWith(path))) {
+		return next()
+	}
+
+	const strongPaths = [
+		'/login',
+		'/signup',
+		'/forgot-password',
+		'/reset-password',
+		'/verify',
+		'/onboarding',
+	]
 
 	if (req.method !== 'GET' && req.method !== 'HEAD') {
 		if (strongPaths.some(path => req.path.includes(path))) {

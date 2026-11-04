@@ -16,11 +16,12 @@ import { SecretsEditorSchema } from './__secrets-editor'
 
 type InvitationResult = {
 	email: string
+	name: string | null
 	organizations: string
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await requireUserWithRoles(request, ['admin'])
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const formData = await request.formData()
 	checkHoneypot(formData)
@@ -42,8 +43,9 @@ export async function action({ request }: ActionFunctionArgs) {
 		}
 
 		const invitations = await prisma.$queryRaw<InvitationResult[]>`
-			SELECT 
+			SELECT
 				email,
+				MAX(name) as name,
 				STRING_AGG(organization, ', ' ORDER BY organization) as organizations
 			FROM "Invitation"
 			WHERE "eventId" = ${submission.value.eventId}
@@ -51,8 +53,14 @@ export async function action({ request }: ActionFunctionArgs) {
 			ORDER BY email ASC
 		`
 
+		// Lowercase all emails for consistency
+		const normalizedInvitations = invitations.map(inv => ({
+			...inv,
+			email: inv.email.toLowerCase(),
+		}))
+
 		const existingUsers = await prisma.user.findMany({
-			where: { email: { in: invitations.map(inv => inv.email) } },
+			where: { email: { in: normalizedInvitations.map(inv => inv.email) } },
 			select: { email: true },
 		})
 		const existingEmails = new Set(existingUsers.map(user => user.email))
@@ -67,11 +75,12 @@ export async function action({ request }: ActionFunctionArgs) {
 
 		// Prepare all passwords and hashes
 		const userUpdates = await Promise.all(
-			invitations.map(async ({ email }) => {
+			normalizedInvitations.map(async ({ email, name }) => {
 				const password = generatePassword()
 				const hash = await getPasswordHash(password)
 				return {
 					email,
+					name,
 					password,
 					hash,
 					status: existingEmails.has(email) ? 'updated' : 'created',
@@ -83,12 +92,16 @@ export async function action({ request }: ActionFunctionArgs) {
 			async tx => {
 				const results = []
 				for (const update of userUpdates) {
+					// Extract username from email (part before @)
+					const username = update.email.split('@')[0]
+
 					await tx.user.upsert({
 						where: { email: update.email },
 						create: {
 							email: update.email,
-							username: update.email,
-							name: update.email,
+							username: username,
+							name: update.name || update.email,
+							tenantId: submission.value.tenantId,
 							roles: {
 								connect: [{ name: 'focal' }],
 							},
@@ -97,6 +110,12 @@ export async function action({ request }: ActionFunctionArgs) {
 							},
 						},
 						update: {
+							tenantId: submission.value.tenantId,
+							name: update.name || undefined,
+							roles: {
+								set: [],
+								connect: [{ name: 'focal' }],
+							},
 							password: {
 								upsert: {
 									create: { hash: update.hash },
@@ -107,7 +126,9 @@ export async function action({ request }: ActionFunctionArgs) {
 					})
 
 					// Find the invitation with organizations for this email
-					const invitation = invitations.find(inv => inv.email === update.email)
+					const invitation = normalizedInvitations.find(
+						inv => inv.email === update.email,
+					)
 
 					results.push({
 						email: update.email,
@@ -166,15 +187,15 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const submission = await parseWithZod(formData, {
 		schema: InvitationEditorSchema.superRefine(async (data, ctx) => {
+			// Lowercase email for consistency
+			const email = data.email ? data.email.toLowerCase() : ''
 			const invitation = await prisma.invitation.findUnique({
 				where: {
-					tenantId_eventId_participantTypeId_restrictionId_organization_email: {
+					tenantId_eventId_organization_email: {
 						tenantId: data.tenantId,
 						eventId: data.eventId,
-						participantTypeId: data.participantTypeId,
-						restrictionId: data.restrictionId,
 						organization: data.organization ?? '',
-						email: data.email ?? '',
+						email,
 					},
 				},
 				select: { id: true },
@@ -199,28 +220,56 @@ export async function action({ request }: ActionFunctionArgs) {
 		)
 	}
 
-	const { id: invitationId, ...data } = submission.value
+	const { id: invitationId, constraints, ...data } = submission.value
 
-	await prisma.invitation.upsert({
-		select: { id: true },
-		where: { id: invitationId ?? '__new_invitation__' },
-		create: {
-			...data,
-			maximumQuota: Number(data.maximumQuota),
-			organization: data.organization ?? '',
-			email: data.email ?? '',
-		},
-		update: {
-			...data,
-			maximumQuota: Number(data.maximumQuota),
-			organization: data.organization ?? '',
-			email: data.email ?? '',
-		},
+	// Lowercase email for consistency
+	const email = data.email ? data.email.toLowerCase() : ''
+
+	const invitation = await prisma.$transaction(async tx => {
+		// Create or update the invitation
+		const inv = await tx.invitation.upsert({
+			select: { id: true },
+			where: { id: invitationId ?? '__new_invitation__' },
+			create: {
+				...data,
+				maximumQuota: data.maximumQuota ? Number(data.maximumQuota) : null,
+				organization: data.organization ?? '',
+				email,
+			},
+			update: {
+				...data,
+				maximumQuota: data.maximumQuota ? Number(data.maximumQuota) : null,
+				organization: data.organization ?? '',
+				email,
+			},
+		})
+
+		// Handle constraints - delete existing and create new
+		if (invitationId) {
+			await tx.invitationConstraint.deleteMany({
+				where: { invitationId: inv.id },
+			})
+		}
+
+		// Create new constraints
+		if (constraints && constraints.length > 0) {
+			await tx.invitationConstraint.createMany({
+				data: constraints.map(c => ({
+					invitationId: inv.id,
+					participantTypeId: c.participantTypeId,
+					accessLevel: c.accessLevel,
+					quota: c.quota ?? null,
+					sourceRestrictionId: c.sourceRestrictionId || null,
+				})),
+			})
+		}
+
+		return inv
 	})
 
 	const action = invitationId ? AuditAction.UPDATE : AuditAction.CREATE
 	const entityType = AuditEntityType.INVITATION
-	const entityId = invitationId
+	const entityId = invitation.id
 	const description = invitationId ? 'Invitation updated' : 'Invitation created'
 	await auditRequest({
 		request,
@@ -231,8 +280,9 @@ export async function action({ request }: ActionFunctionArgs) {
 		userId: user.id,
 		metadata: {
 			invitation: {
-				id: invitationId,
+				id: invitation.id,
 				...data,
+				constraints,
 			},
 		},
 	})

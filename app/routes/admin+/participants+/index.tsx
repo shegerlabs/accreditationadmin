@@ -1,87 +1,197 @@
+import { parseWithZod } from '@conform-to/zod'
+import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
-import { useFetcher, useLoaderData } from '@remix-run/react'
-import { EyeIcon, TrashIcon, UserIcon } from 'lucide-react'
+import {
+	Link,
+	useFetcher,
+	useLoaderData,
+	useSearchParams,
+} from '@remix-run/react'
+import {
+	ChevronDown,
+	EyeIcon,
+	ImageIcon,
+	RotateCcw,
+	Trash2,
+	TrashIcon,
+} from 'lucide-react'
 import { useState } from 'react'
-import { useMediaQuery } from 'react-responsive'
+import { z } from 'zod'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { Badge } from '~/components/ui/badge'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { Button } from '~/components/ui/button'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '~/components/ui/dropdown-menu'
+import { Icon } from '~/components/ui/icon'
+import { auditRequest } from '~/utils/audit.server'
+import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
+import { getCachedCountries } from '~/utils/cache.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
-import { registrationWizard } from '~/utils/registration.server'
-import { useOptionalUser } from '~/utils/user'
 
-export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
-	const { destroy } = await registrationWizard.register(request)
+const RestoreParticipantSchema = z.object({
+	participantId: z.string(),
+})
 
-	const { data, totalPages, currentPage } = await filterAndPaginate({
-		request,
-		model: prisma.participant,
-		searchFields: [
-			'id',
-			'email',
-			'organization',
-			'registrationCode',
-			'firstName',
-			'familyName',
-			{ tenant: 'name' },
-			{ event: 'name' },
-			{ participantType: 'name' },
-			{ country: 'name' },
-		],
-		filterFields: [
-			'participantTypeId',
-			'status',
-			'nationalityId',
-			'organization',
-			{ field: 'wishList', operator: 'array-contains' },
-		],
-		orderBy: [{ createdAt: 'desc' }],
+export async function action({ request }: ActionFunctionArgs) {
+	const user = await requireAdminAccess(request)
+	const tenantFilter = getTenantFilter(user)
+	const formData = await request.formData()
+
+	const submission = parseWithZod(formData, {
+		schema: RestoreParticipantSchema,
+	})
+
+	if (submission.status !== 'success') {
+		return json(
+			{ result: submission.reply(), status: 'error' as const },
+			{ status: 400 },
+		)
+	}
+
+	const { participantId } = submission.value
+
+	// Restore the participant (clear deletedAt)
+	const participant = await prisma.participant.update({
+		where: {
+			id: participantId,
+			...tenantFilter,
+		},
+		data: {
+			deletedAt: null,
+		},
 		select: {
 			id: true,
-			email: true,
 			firstName: true,
 			familyName: true,
-			organization: true,
 			registrationCode: true,
-			status: true,
-			wishList: true,
-			step: {
-				select: {
-					name: true,
-					action: true,
-					role: {
-						select: {
-							name: true,
-						},
-					},
-				},
-			},
-			tenant: {
-				select: {
-					name: true,
-				},
-			},
-			event: {
-				select: {
-					name: true,
-				},
-			},
-			participantType: {
-				select: {
-					name: true,
-				},
-			},
-			country: {
-				select: {
-					name: true,
-				},
-			},
 		},
 	})
 
+	// Log the restore action
+	await auditRequest({
+		request,
+		action: AuditAction.UPDATE,
+		entityType: AuditEntityType.PARTICIPANT,
+		entityId: participant.id,
+		description: `Restored participant: ${participant.firstName} ${participant.familyName} (${participant.registrationCode})`,
+	})
+
+	return json({ result: submission.reply(), status: 'success' as const })
+}
+
+export async function loader({ request }: LoaderFunctionArgs) {
+	const user = await requireAdminAccess(request)
+	const tenantFilter = getTenantFilter(user)
+
+	// Check deleted filter: 'all', 'active', or 'deleted'
+	const url = new URL(request.url)
+	const deletedFilter = url.searchParams.get('deleted') || 'active'
+	const deletedCondition =
+		deletedFilter === 'all'
+			? {}
+			: deletedFilter === 'deleted'
+				? { deletedAt: { not: null } }
+				: { deletedAt: null }
+
+	// Check stage filter for stuck requests at system steps
+	const stageFilter = url.searchParams.get('stage') || 'all'
+	const stageCondition =
+		stageFilter === 'stuck'
+			? { step: { name: { in: ['Request Received', 'Review Request'] } } }
+			: {}
+
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.participant,
+			where: {
+				...tenantFilter,
+				...deletedCondition,
+				...stageCondition,
+			},
+			searchFields: [
+				'id',
+				'email',
+				'organization',
+				'registrationCode',
+				'firstName',
+				'familyName',
+				{ tenant: 'name' },
+				{ event: 'name' },
+				{ participantType: 'name' },
+				{ country: 'name' },
+			],
+			filterFields: [
+				'participantTypeId',
+				'status',
+				'nationalityId',
+				'organization',
+				'tenantId',
+				{ field: 'wishList', operator: 'array-contains' },
+				{ field: 'attendClosedSession', isBoolean: true },
+			],
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				email: true,
+				firstName: true,
+				familyName: true,
+				organization: true,
+				registrationCode: true,
+				status: true,
+				attendClosedSession: true,
+				wishList: true,
+				deletedAt: true,
+				step: {
+					select: {
+						name: true,
+						action: true,
+						role: {
+							select: {
+								name: true,
+							},
+						},
+					},
+				},
+				tenant: {
+					select: {
+						name: true,
+					},
+				},
+				event: {
+					select: {
+						name: true,
+					},
+				},
+				participantType: {
+					select: {
+						name: true,
+					},
+				},
+				country: {
+					select: {
+						name: true,
+					},
+				},
+				documents: {
+					where: {
+						documentType: 'PHOTO',
+					},
+					select: {
+						id: true,
+					},
+					take: 1,
+				},
+			},
+		})
+
 	const participantTypes = await prisma.participantType.findMany({
+		where: tenantFilter,
 		select: {
 			id: true,
 			name: true,
@@ -89,69 +199,51 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	})
 
 	const meetingTypes = await prisma.meetingType.findMany({
+		where: tenantFilter,
 		select: {
 			id: true,
 			name: true,
 		},
 	})
 
-	const countries = await prisma.country.findMany({
-		select: {
-			id: true,
-			name: true,
-		},
-	})
+	// Countries are global data - use cached version
+	const countries = await getCachedCountries()
 
 	const invitations = await prisma.invitation.findMany({
+		where: tenantFilter,
 		select: {
 			organization: true,
 		},
 		distinct: ['organization'],
 	})
 
-	const headers = await destroy()
-
-	return json(
-		{
-			status: 'idle',
-			participants: data,
-			totalPages,
-			currentPage,
-			participantTypes,
-			countries,
-			meetingTypes,
-			invitations,
-		} as const,
-		{ headers },
-	)
-}
-
-export async function action({ request }: ActionFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
-
-	const formData = await request.formData()
-	const intent = formData.get('intent')
-
-	if (intent === 'bulk-delete') {
-		const selectedIds = formData.get('selectedIds')?.toString().split(',') || []
-
-		if (selectedIds.length > 0) {
-			await prisma.participant.deleteMany({
-				where: {
-					id: {
-						in: selectedIds,
-					},
+	// Fetch tenants for global admins to filter by
+	const tenants = user.isGlobalAdmin
+		? await prisma.tenant.findMany({
+				select: {
+					id: true,
+					name: true,
 				},
+				orderBy: { name: 'asc' },
 			})
-		}
+		: []
 
-		return json({
-			status: 'success',
-			message: 'Participants deleted successfully',
-		})
-	}
-
-	return json({ status: 'error', message: 'Invalid action' }, { status: 400 })
+	return json({
+		status: 'idle',
+		participants: data,
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		participantTypes,
+		countries,
+		meetingTypes,
+		invitations,
+		tenants,
+		deletedFilter,
+		isAdmin: user.isGlobalAdmin || user.isTenantAdmin,
+		isGlobalAdmin: user.isGlobalAdmin,
+	} as const)
 }
 
 export default function IndexRoute() {
@@ -159,33 +251,28 @@ export default function IndexRoute() {
 	const {
 		totalPages,
 		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
 		participantTypes,
 		countries,
 		meetingTypes,
 		invitations,
+		tenants,
+		deletedFilter,
+		isAdmin,
+		isGlobalAdmin,
 	} = data
-	const user = useOptionalUser()
-	const isMobile = useMediaQuery({ maxWidth: 767 })
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+	const [searchParams] = useSearchParams()
 	const fetcher = useFetcher()
 
-	const handleBulkDelete = async (selectedIds: Set<string>) => {
-		if (
-			window.confirm(
-				`Are you sure you want to delete ${selectedIds.size} participants?`,
-			)
-		) {
-			const formData = new FormData()
-			formData.append('intent', 'bulk-delete')
-			formData.append('selectedIds', Array.from(selectedIds).join(','))
-
-			fetcher.submit(formData, {
-				method: 'POST',
-			})
-
-			// Clear selection after delete
-			setSelectedIds(new Set())
+	// Build export URL with either selected IDs or current filters
+	const buildExportUrl = (basePath: string) => {
+		const params = new URLSearchParams(searchParams)
+		if (selectedIds.size > 0) {
+			params.set('selectedIds', Array.from(selectedIds).join(','))
 		}
+		return `${basePath}${params.size ? '?' + params.toString() : ''}`
 	}
 
 	return (
@@ -197,7 +284,21 @@ export default function IndexRoute() {
 						action="/admin/participants"
 						autoSubmit={true}
 						showAddButton={false}
+						filterDisplay="popover"
 						filters={[
+							{
+								name: 'tenantId',
+								label: 'Tenant',
+								type: 'select',
+								options: [
+									{ value: 'all', label: 'All Tenants' },
+									...tenants.map(tenant => ({
+										value: tenant.id,
+										label: tenant.name,
+									})),
+								],
+								show: isGlobalAdmin,
+							},
 							{
 								name: 'participantTypeId',
 								label: 'Participant Type',
@@ -205,7 +306,7 @@ export default function IndexRoute() {
 								options: [
 									{ value: 'all', label: 'All' },
 									...participantTypes
-										.filter(participantType => participantType.name !== 'All')
+										.filter(pt => pt.name !== 'Any')
 										.map(participantType => ({
 											value: participantType.id,
 											label: participantType.name,
@@ -249,6 +350,25 @@ export default function IndexRoute() {
 								],
 							},
 							{
+								name: 'stage',
+								label: 'Stage',
+								type: 'select',
+								options: [
+									{ value: 'all', label: 'All' },
+									{ value: 'stuck', label: 'Stuck (System Steps)' },
+								],
+							},
+							{
+								name: 'attendClosedSession',
+								label: 'Session',
+								type: 'select',
+								options: [
+									{ value: 'all', label: 'All' },
+									{ value: 'true', label: 'Closed' },
+									{ value: 'false', label: 'Open' },
+								],
+							},
+							{
 								name: 'organization',
 								label: 'Invitation',
 								type: 'select',
@@ -260,15 +380,48 @@ export default function IndexRoute() {
 									})),
 								],
 							},
-						]}
-						extras={[
 							{
-								label: 'Export',
-								to: '/admin/resources/participants',
-								icon: 'download',
-								type: 'anchor',
+								name: 'deleted',
+								label: 'Show',
+								type: 'select',
+								options: [
+									{ value: 'all', label: 'All' },
+									{ value: 'active', label: 'Active' },
+									{ value: 'deleted', label: 'Deleted' },
+								],
+								show: isAdmin,
 							},
 						]}
+						renderExtra={
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button size="sm" className="gap-1">
+										<Icon name="download" size="sm" />
+										Export
+										{selectedIds.size > 0 && ` (${selectedIds.size})`}
+										<ChevronDown className="h-4 w-4" />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuItem asChild>
+										<a
+											href={buildExportUrl('/admin/resources/participants')}
+											className="flex items-center gap-2"
+										>
+											Export Excel
+										</a>
+									</DropdownMenuItem>
+									<DropdownMenuItem asChild>
+										<a
+											href={buildExportUrl('/admin/resources/photos')}
+											className="flex items-center gap-2"
+										>
+											Download Photos
+										</a>
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						}
 					/>
 				</div>
 
@@ -276,31 +429,68 @@ export default function IndexRoute() {
 					data={data.participants}
 					columns={[
 						{
-							key: 'registrationCode',
-							header: 'Code',
-							render: (participant: any) => participant.registrationCode,
+							key: 'name',
+							header: 'Participant',
+							render: (participant: any) => {
+								const photo = participant.documents?.[0]
+								return (
+									<Link
+										to={`/admin/participants/${participant.id}${searchParams.size ? '?' + searchParams.toString() : ''}`}
+										className="flex items-center gap-3"
+									>
+										{photo ? (
+											<img
+												src={`/admin/resources/participants/${photo.id}?mode=inline`}
+												alt={`${participant.firstName} ${participant.familyName}`}
+												className="h-10 w-10 rounded-full object-cover"
+												loading="lazy"
+												onError={e => {
+													const target = e.target as HTMLImageElement
+													target.style.display = 'none'
+													if (target.parentElement) {
+														target.parentElement.innerHTML = `<div class="flex h-10 w-10 items-center justify-center rounded-full bg-muted"><svg class="h-5 w-5 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></div>`
+													}
+												}}
+											/>
+										) : (
+											<div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+												<ImageIcon className="h-5 w-5 text-muted-foreground" />
+											</div>
+										)}
+										<div>
+											<div className="font-medium">
+												{participant.registrationCode}
+											</div>
+											<div className="text-sm text-muted-foreground">
+												{participant.firstName} {participant.familyName}
+											</div>
+										</div>
+									</Link>
+								)
+							},
 						},
 						{
-							key: 'name',
-							header: 'Name',
+							key: 'participantType',
+							header: 'Type',
+							render: (participant: any) => participant.participantType.name,
+						},
+						{
+							key: 'session',
+							header: 'Session',
 							render: (participant: any) => (
-								<div className="flex items-center space-x-2">
-									<UserIcon className="h-4 w-4 text-primary" />
-									<span>
-										{participant.firstName} {participant.familyName}
-									</span>
-								</div>
+								<Badge
+									variant={
+										participant.attendClosedSession ? 'default' : 'secondary'
+									}
+								>
+									{participant.attendClosedSession ? 'Closed' : 'Open'}
+								</Badge>
 							),
 						},
 						{
 							key: 'organization',
 							header: 'Organization',
 							render: (participant: any) => participant.organization,
-						},
-						{
-							key: 'participantType',
-							header: 'Participant Type',
-							render: (participant: any) => participant.participantType.name,
 						},
 						{
 							key: 'status',
@@ -327,7 +517,7 @@ export default function IndexRoute() {
 						},
 						{
 							key: 'step',
-							header: 'Current Step',
+							header: 'Stage',
 							render: (participant: any) => (
 								<div className="flex items-center">
 									<span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 ring-1 ring-inset ring-emerald-700/10">
@@ -344,33 +534,49 @@ export default function IndexRoute() {
 							label: 'Documents',
 							icon: <EyeIcon className="h-4 w-4" />,
 							href: (participant: any) =>
-								`/admin/participants/${participant.id}`,
+								`/admin/participants/${participant.id}${searchParams.size ? '?' + searchParams.toString() : ''}`,
 							variant: 'outline' as const,
+						},
+						{
+							label: 'Restore',
+							icon: <RotateCcw className="h-4 w-4" />,
+							onClick: (participant: any) => {
+								fetcher.submit(
+									{ participantId: participant.id },
+									{ method: 'POST' },
+								)
+							},
+							variant: 'default' as const,
+							show: (participant: any) => participant.deletedAt !== null,
 						},
 						{
 							label: 'Delete',
 							icon: <TrashIcon className="h-4 w-4" />,
 							href: (participant: any) =>
-								`/admin/participants/${participant.id}/delete`,
+								`/admin/participants/${participant.id}/delete${searchParams.size ? '?' + searchParams.toString() : ''}`,
 							variant: 'outline' as const,
+							show: (participant: any) => participant.deletedAt === null,
+						},
+						{
+							label: 'Delete Permanently',
+							icon: <Trash2 className="h-4 w-4" />,
+							href: (participant: any) =>
+								`/admin/participants/${participant.id}/delete-permanently${searchParams.size ? '?' + searchParams.toString() : ''}`,
+							variant: 'destructive' as const,
+							show: (participant: any) =>
+								participant.deletedAt !== null && isGlobalAdmin,
 						},
 					]}
 					status={data.status}
-					isMobile={isMobile}
+					
 					keyExtractor={participant => participant.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
+					defaultPageSize={defaultPageSize}
+					pageSizeOptions={pageSizeOptions}
 					selectable={true}
 					selectedIds={selectedIds}
 					onSelectionChange={setSelectedIds}
-					bulkActions={[
-						{
-							label: 'Delete Selected',
-							icon: <TrashIcon className="h-4 w-4" />,
-							variant: 'destructive',
-							onClick: handleBulkDelete,
-						},
-					]}
 				/>
 			</div>
 		</div>

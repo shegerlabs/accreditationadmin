@@ -87,7 +87,7 @@ export function DatePickerField({
 					triggerRef.current?.focus()
 				}}
 			/>
-			<Popover open={isOpen} onOpenChange={setIsOpen}>
+			<Popover open={isOpen} onOpenChange={setIsOpen} modal={true}>
 				<PopoverTrigger asChild>
 					<Button
 						ref={triggerRef}
@@ -107,7 +107,10 @@ export function DatePickerField({
 						)}
 					</Button>
 				</PopoverTrigger>
-				<PopoverContent className="flex w-auto flex-col space-y-2 p-2">
+				<PopoverContent
+				className="flex w-auto flex-col space-y-2 p-2"
+				onPointerDownOutside={e => e.preventDefault()}
+			>
 					<div className="flex space-x-2">
 						<Select
 							onValueChange={value => {

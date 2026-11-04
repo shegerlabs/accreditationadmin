@@ -7,7 +7,7 @@ import { StepEditor } from './__step-editor'
 export { action } from './__step-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { workflowId } = params
 
@@ -22,10 +22,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	invariantResponse(workflow, 'Not Found', { status: 404 })
 
-	return json({ workflow })
+	// Get all existing steps for this workflow to populate the nextStepId dropdown
+	const steps = await prisma.step.findMany({
+		where: { workflowId },
+		select: { id: true, name: true },
+		orderBy: { order: 'asc' },
+	})
+
+	return json({ workflow, steps })
 }
 
 export default function AddStepRoute() {
-	const { workflow } = useLoaderData<typeof loader>()
-	return <StepEditor title="Add Step" workflow={workflow} />
+	const { workflow, steps } = useLoaderData<typeof loader>()
+	return <StepEditor title="Add Step" workflow={workflow} steps={steps} intent="add" />
 }

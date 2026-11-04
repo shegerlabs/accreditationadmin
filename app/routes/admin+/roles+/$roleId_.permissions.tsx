@@ -2,7 +2,6 @@ import { parseWithZod } from '@conform-to/zod'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
 import { useLoaderData } from '@remix-run/react'
 import { TrashIcon, UserIcon } from 'lucide-react'
-import { useMediaQuery } from 'react-responsive'
 import { z } from 'zod'
 import { ActionForm } from '~/components/action-form'
 import { DataList } from '~/components/data-list'
@@ -134,7 +133,6 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function IndexRoute() {
 	const { role, entities, actions, access } = useLoaderData<typeof loader>()
-	const isMobile = useMediaQuery({ maxWidth: 767 })
 
 	const deleteAction = (permission: any) => (
 		<ActionForm
@@ -226,7 +224,7 @@ export default function IndexRoute() {
 						},
 					]}
 					status="idle"
-					isMobile={isMobile}
+					
 					keyExtractor={permission => permission.id}
 				/>
 			</div>

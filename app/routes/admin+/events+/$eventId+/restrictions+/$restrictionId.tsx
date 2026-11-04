@@ -4,7 +4,7 @@ import { requireUserWithRoles } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId } = params
 

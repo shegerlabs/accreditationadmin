@@ -4,6 +4,7 @@ import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
 import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
+import { invalidateCache } from '~/utils/cache.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
@@ -46,6 +47,8 @@ export async function action({ request }: ActionFunctionArgs) {
 				role,
 			},
 		})
+
+		invalidateCache('roles')
 
 		return redirectWithToast('/admin/roles', {
 			type: 'success',
@@ -116,6 +119,8 @@ export async function action({ request }: ActionFunctionArgs) {
 			},
 		},
 	})
+
+	invalidateCache('roles')
 
 	return redirectWithToast('/admin/roles', {
 		type: 'success',

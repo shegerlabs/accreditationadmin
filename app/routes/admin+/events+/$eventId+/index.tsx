@@ -9,16 +9,20 @@ import {
 	Workflow,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const currentUser = await requireAdminAccess(request)
+	const tenantFilter = getTenantFilter(currentUser)
 
 	const { eventId } = params
 
-	const event = await prisma.event.findUnique({
-		where: { id: eventId },
+	const event = await prisma.event.findFirst({
+		where: {
+			id: eventId,
+			...tenantFilter,
+		},
 		select: {
 			id: true,
 			name: true,

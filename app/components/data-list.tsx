@@ -21,7 +21,7 @@ type DataItem = Record<string, any>
 
 type Column = {
 	key: string
-	header: string
+	header: React.ReactNode
 	render?: (item: DataItem) => React.ReactNode
 }
 
@@ -46,7 +46,6 @@ type DataListProps = {
 	columns: Column[]
 	actions?: Action[]
 	status: 'idle' | 'error' | 'loading'
-	isMobile: boolean
 	keyExtractor: (item: DataItem) => string
 	totalPages?: number
 	currentPage?: number
@@ -66,6 +65,8 @@ type DataListProps = {
 			| 'link'
 		onClick: (selectedIds: Set<string>) => void
 	}[]
+	defaultPageSize?: number
+	pageSizeOptions?: number[]
 }
 
 export function DataList({
@@ -73,7 +74,6 @@ export function DataList({
 	columns,
 	actions,
 	status,
-	isMobile,
 	keyExtractor,
 	totalPages,
 	currentPage,
@@ -82,6 +82,8 @@ export function DataList({
 	selectedIds = new Set(),
 	onSelectionChange,
 	bulkActions,
+	defaultPageSize,
+	pageSizeOptions,
 }: DataListProps) {
 	const showPaginator = totalPages !== undefined && currentPage !== undefined
 
@@ -133,15 +135,16 @@ export function DataList({
 		)
 	}
 
-	if (isMobile) {
-		return (
-			<div className="space-y-4">
+	return (
+		<>
+			{/* Mobile/tablet card view */}
+			<div className="space-y-4 lg:hidden">
 				{selectable && selectedIds.size > 0 && bulkActions && (
 					<div className="mb-4 flex items-center justify-between rounded-md bg-muted p-2">
 						<span className="text-sm font-medium">
 							{selectedIds.size} item(s) selected
 						</span>
-						<div className="flex space-x-2">
+						<div className="flex flex-wrap gap-2">
 							{bulkActions.map((action, index) => (
 								<Button
 									key={index}
@@ -174,7 +177,9 @@ export function DataList({
 									</div>
 									<div>
 										<h3 className="text-base font-semibold">
-											{item[columns[0].key]}
+											{columns[0].render
+												? columns[0].render(item)
+												: item[columns[0].key]}
 										</h3>
 									</div>
 								</div>
@@ -188,7 +193,7 @@ export function DataList({
 								</p>
 							))}
 							{actions && (
-								<div className="mt-2 flex justify-end space-x-2">
+								<div className="mt-2 flex flex-wrap justify-end gap-2">
 									{actions.map((action, index) => {
 										if (
 											action.show &&
@@ -254,163 +259,167 @@ export function DataList({
 
 				{showPaginator && data?.length > 0 && (
 					<div className="mt-4 border-t pt-4">
-						<div className="flex items-center justify-between px-4">
+						<div className="flex flex-col items-center gap-2 px-4">
 							<p className="text-sm text-muted-foreground">
 								Page {currentPage} of {totalPages}
 							</p>
-							<div className="flex space-x-2">
-								<Paginator totalPages={totalPages} currentPage={currentPage} />
-							</div>
+							<Paginator
+								totalPages={totalPages}
+								currentPage={currentPage}
+								defaultPageSize={defaultPageSize}
+								pageSizeOptions={pageSizeOptions}
+							/>
 						</div>
 					</div>
 				)}
 			</div>
-		)
-	}
 
-	return (
-		<div className="space-y-4">
-			{selectable && selectedIds.size > 0 && bulkActions && (
-				<div className="flex items-center justify-between rounded-md bg-muted p-2">
-					<span className="text-sm font-medium">
-						{selectedIds.size} item(s) selected
-					</span>
-					<div className="flex space-x-2">
-						{bulkActions.map((action, index) => (
-							<Button
-								key={index}
-								size="sm"
-								variant={action.variant || 'outline'}
-								onClick={() => action.onClick(selectedIds)}
-							>
-								{action.icon}
-								<span className="ml-2">{action.label}</span>
-							</Button>
-						))}
-					</div>
-				</div>
-			)}
-			<div className="overflow-x-auto rounded-md border">
-				<Table>
-					<TableHeader>
-						<TableRow>
-							{selectable && (
-								<TableHead className="w-[50px]">
-									<Checkbox
-										checked={
-											data.length > 0 && selectedIds.size === data.length
-										}
-										onCheckedChange={handleSelectAll}
-									/>
-								</TableHead>
-							)}
-							{columns.map(column => (
-								<TableHead key={column.key}>{column.header}</TableHead>
+			{/* Desktop table view */}
+			<div className="hidden space-y-4 lg:block">
+				{selectable && selectedIds.size > 0 && bulkActions && (
+					<div className="flex items-center justify-between rounded-md bg-muted p-2">
+						<span className="text-sm font-medium">
+							{selectedIds.size} item(s) selected
+						</span>
+						<div className="flex space-x-2">
+							{bulkActions.map((action, index) => (
+								<Button
+									key={index}
+									size="sm"
+									variant={action.variant || 'outline'}
+									onClick={() => action.onClick(selectedIds)}
+								>
+									{action.icon}
+									<span className="ml-2">{action.label}</span>
+								</Button>
 							))}
-							{actions && <TableHead className="text-right">Actions</TableHead>}
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{data.map(item => (
-							<TableRow key={keyExtractor(item)}>
+						</div>
+					</div>
+				)}
+				<div className="overflow-x-auto rounded-md border">
+					<Table>
+						<TableHeader>
+							<TableRow>
 								{selectable && (
-									<TableCell>
+									<TableHead className="w-[50px]">
 										<Checkbox
-											checked={selectedIds.has(keyExtractor(item))}
-											onCheckedChange={() =>
-												handleSelectItem(keyExtractor(item))
+											checked={
+												data.length > 0 && selectedIds.size === data.length
 											}
+											onCheckedChange={handleSelectAll}
 										/>
-									</TableCell>
+									</TableHead>
 								)}
 								{columns.map(column => (
-									<TableCell key={column.key} className="py-2">
-										{column.render ? column.render(item) : item[column.key]}
-									</TableCell>
+									<TableHead key={column.key}>{column.header}</TableHead>
 								))}
-								{actions && (
+								{actions && <TableHead className="text-right">Actions</TableHead>}
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{data.map(item => (
+								<TableRow key={keyExtractor(item)}>
+									{selectable && (
+										<TableCell>
+											<Checkbox
+												checked={selectedIds.has(keyExtractor(item))}
+												onCheckedChange={() =>
+													handleSelectItem(keyExtractor(item))
+												}
+											/>
+										</TableCell>
+									)}
+									{columns.map(column => (
+										<TableCell key={column.key} className="py-2">
+											{column.render ? column.render(item) : item[column.key]}
+										</TableCell>
+									))}
+									{actions && (
+										<TableCell
+											className={clsx(
+												actionWidth ? `w-${actionWidth}` : 'w-48',
+												'space-x-4 py-2 text-right',
+											)}
+										>
+											{actions.map((action, index) => {
+												if (
+													action.show &&
+													typeof action.show === 'function' &&
+													!action.show(item)
+												) {
+													return null
+												}
+
+												if (
+													action.show &&
+													typeof action.show === 'boolean' &&
+													!action.show
+												) {
+													return null
+												}
+												if (action.render) {
+													return (
+														<div key={index} className="inline-flex">
+															{action.render(item)}
+														</div>
+													)
+												}
+
+												if (action.href) {
+													return (
+														<Button
+															key={index}
+															asChild
+															size="sm"
+															variant={action.variant || 'ghost'}
+														>
+															<Link to={action.href(item)}>{action.icon}</Link>
+														</Button>
+													)
+												}
+
+												if (action.onClick) {
+													return (
+														<Button
+															key={index}
+															size="sm"
+															variant={action.variant || 'ghost'}
+															onClick={() => action.onClick?.(item)}
+														>
+															{action.icon}
+														</Button>
+													)
+												}
+
+												return null
+											})}
+										</TableCell>
+									)}
+								</TableRow>
+							))}
+						</TableBody>
+						{showPaginator && data?.length > 0 && (
+							<TableFooter>
+								<TableRow>
 									<TableCell
-										className={clsx(
-											actionWidth ? `w-${actionWidth}` : 'w-48',
-											'space-x-4 py-2 text-right',
-										)}
+										colSpan={columns.length + (actions ? 1 : 0)}
+										className="h-8 px-4 py-1"
 									>
-										{actions.map((action, index) => {
-											if (
-												action.show &&
-												typeof action.show === 'function' &&
-												!action.show(item)
-											) {
-												return null
-											}
-
-											if (
-												action.show &&
-												typeof action.show === 'boolean' &&
-												!action.show
-											) {
-												return null
-											}
-											if (action.render) {
-												return (
-													<div key={index} className="inline-flex">
-														{action.render(item)}
-													</div>
-												)
-											}
-
-											if (action.href) {
-												return (
-													<Button
-														key={index}
-														asChild
-														size="sm"
-														variant={action.variant || 'ghost'}
-													>
-														<Link to={action.href(item)}>{action.icon}</Link>
-													</Button>
-												)
-											}
-
-											if (action.onClick) {
-												return (
-													<Button
-														key={index}
-														size="sm"
-														variant={action.variant || 'ghost'}
-														onClick={() => action.onClick?.(item)}
-													>
-														{action.icon}
-													</Button>
-												)
-											}
-
-											return null
-										})}
+										<div className="flex justify-end">
+											<Paginator
+												totalPages={totalPages}
+												currentPage={currentPage}
+												defaultPageSize={defaultPageSize}
+												pageSizeOptions={pageSizeOptions}
+											/>
+										</div>
 									</TableCell>
-								)}
-							</TableRow>
-						))}
-					</TableBody>
-					{showPaginator && data?.length > 0 && (
-						<TableFooter>
-							<TableRow>
-								<TableCell
-									colSpan={columns.length + (actions ? 1 : 0)}
-									className="h-8 px-4 py-1"
-								>
-									<div className="flex justify-end">
-										<Paginator
-											totalPages={totalPages}
-											currentPage={currentPage}
-										/>
-									</div>
-								</TableCell>
-							</TableRow>
-						</TableFooter>
-					)}
-				</Table>
+								</TableRow>
+							</TableFooter>
+						)}
+					</Table>
+				</div>
 			</div>
-		</div>
+		</>
 	)
 }

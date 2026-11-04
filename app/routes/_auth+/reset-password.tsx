@@ -22,6 +22,8 @@ import {
 	CardTitle,
 } from '~/components/ui/card'
 import { Label } from '~/components/ui/label'
+import { AuditAction, AuditEntityType } from '@prisma/client'
+import { auditRequest } from '~/utils/audit.server'
 import { resetUserPassword } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
@@ -78,8 +80,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	const hasRoles = userHasRoles(user, [
 		'admin',
-		'first-validator',
-		'second-validator',
+		'tenant',
+		'validator',
+		'reviewer',
 		'printer',
 	])
 
@@ -110,7 +113,30 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const { password } = submission.value
 
+	// Get user for audit log
+	const user = await prisma.user.findUnique({
+		where: { username: resetPasswordUsername },
+		select: { id: true, username: true, email: true, tenantId: true },
+	})
+
 	await resetUserPassword({ username: resetPasswordUsername, password })
+
+	// Log password reset
+	if (user) {
+		await auditRequest({
+			request,
+			action: AuditAction.PASSWORD_RESET,
+			entityType: AuditEntityType.USER,
+			entityId: user.id,
+			description: `Password reset completed for ${user.username}`,
+			userId: user.id,
+			tenantId: user.tenantId,
+			metadata: {
+				user: { id: user.id, username: user.username, email: user.email },
+				resetMethod: 'email_verification',
+			},
+		})
+	}
 
 	const verifySession = await verifySessionStorage.getSession(
 		request.headers.get('cookie'),

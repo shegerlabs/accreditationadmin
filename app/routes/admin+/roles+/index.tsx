@@ -1,7 +1,6 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { useLoaderData } from '@remix-run/react'
 import { EditIcon, LockIcon, TrashIcon, UserIcon } from 'lucide-react'
-import { useMediaQuery } from 'react-responsive'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
@@ -10,7 +9,7 @@ import { filterAndPaginate, prisma } from '~/utils/db.server'
 export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, ['admin'])
 
-	const { data, totalPages, currentPage } = await filterAndPaginate({
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
 		request,
 		model: prisma.role,
 		searchFields: ['name'],
@@ -22,13 +21,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		roles: data,
 		totalPages,
 		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
 	} as const)
 }
 
 export default function RolesListPage() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage } = data
-	const isMobile = useMediaQuery({ maxWidth: 767 })
+	const { totalPages, currentPage, defaultPageSize, pageSizeOptions } = data
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -83,10 +83,12 @@ export default function RolesListPage() {
 						},
 					]}
 					status={data.status}
-					isMobile={isMobile}
+					
 					keyExtractor={role => role.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
+					defaultPageSize={defaultPageSize}
+					pageSizeOptions={pageSizeOptions}
 				/>
 			</div>
 		</div>

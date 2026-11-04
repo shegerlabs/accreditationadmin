@@ -1,6 +1,9 @@
 import { parseWithZod } from '@conform-to/zod'
+import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
+import { auditRequest } from '~/utils/audit.server'
+import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
@@ -11,6 +14,8 @@ import {
 } from './__restriction-editor'
 
 export async function action({ request }: ActionFunctionArgs) {
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
+
 	const formData = await request.formData()
 	checkHoneypot(formData)
 	await validateCSRF(formData, request.headers)
@@ -29,9 +34,25 @@ export async function action({ request }: ActionFunctionArgs) {
 			)
 		}
 
+		const restrictionToDelete = await prisma.restriction.findUnique({
+			where: { id: submission.value.id },
+			select: { id: true, name: true, eventId: true, tenantId: true, event: { select: { name: true } } },
+		})
+
 		const restriction = await prisma.restriction.delete({
 			select: { eventId: true },
 			where: { id: submission.value.id },
+		})
+
+		await auditRequest({
+			request,
+			action: AuditAction.DELETE,
+			entityType: AuditEntityType.RESTRICTION,
+			entityId: submission.value.id,
+			description: `Deleted restriction "${restrictionToDelete?.name}" from event "${restrictionToDelete?.event.name}"`,
+			userId: user.id,
+			tenantId: restrictionToDelete?.tenantId,
+			metadata: { restriction: restrictionToDelete },
 		})
 
 		return redirectWithToast(
@@ -51,7 +72,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					tenantId_eventId_name: {
 						eventId: data.eventId,
 						tenantId: data.tenantId,
-						name: data.name,
+						name: data.name ?? '',
 					},
 				},
 				select: { id: true },
@@ -76,21 +97,38 @@ export async function action({ request }: ActionFunctionArgs) {
 		)
 	}
 
-	const { id: restrictionId, ...data } = submission.value
+	const { id: restrictionId, name, ...data } = submission.value
+	const isUpdate = !!restrictionId
 
-	await prisma.restriction.upsert({
+	const restriction = await prisma.restriction.upsert({
+		select: { id: true, name: true, tenantId: true, event: { select: { name: true } } },
 		where: { id: restrictionId ?? '__new_restriction__' },
 		create: {
 			...data,
+			name: name!,
 		},
 		update: {
 			...data,
+			name: name!,
+		},
+	})
+
+	await auditRequest({
+		request,
+		action: isUpdate ? AuditAction.UPDATE : AuditAction.CREATE,
+		entityType: AuditEntityType.RESTRICTION,
+		entityId: restriction.id,
+		description: `${isUpdate ? 'Updated' : 'Created'} restriction "${name}" for event "${restriction.event.name}"`,
+		userId: user.id,
+		tenantId: restriction.tenantId,
+		metadata: {
+			restriction: { id: restriction.id, name, ...data },
 		},
 	})
 
 	return redirectWithToast(`/admin/events/${data.eventId}/restrictions`, {
 		type: 'success',
-		title: `Restriction ${restrictionId ? 'Updated' : 'Created'}`,
-		description: `Restriction ${restrictionId ? 'updated' : 'created'} successfully.`,
+		title: `Restriction ${isUpdate ? 'Updated' : 'Created'}`,
+		description: `Restriction ${isUpdate ? 'updated' : 'created'} successfully.`,
 	})
 }

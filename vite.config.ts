@@ -8,7 +8,6 @@ const MODE = process.env.NODE_ENV
 
 export default defineConfig({
 	build: {
-		chunkSizeWarningLimit: 2000,
 		cssMinify: MODE === 'production',
 		rollupOptions: {
 			external: [/node:.*/],

@@ -68,7 +68,7 @@ export function FormCard({
 				</Form>
 			</CardContent>
 			{buttons && (
-				<CardFooter className="flex justify-end space-x-4 border-t py-2">
+				<CardFooter className="flex flex-wrap justify-end gap-2 border-t py-2">
 					{buttons.map((button, index) =>
 						button.type === 'link' ? (
 							<Button key={index} asChild variant={button.variant || 'outline'}>

@@ -7,11 +7,12 @@ import { InvitationEditor } from './__invitation-editor'
 export { action } from './__invitation-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { eventId } = params
 
 	const event = await prisma.event.findUnique({
+		select: { id: true, tenantId: true, name: true },
 		where: { id: eventId },
 	})
 
@@ -22,5 +23,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function AddInvitationRoute() {
 	const { event } = useLoaderData<typeof loader>()
-	return <InvitationEditor event={event} title="Add New Invitation" />
+	return (
+		<InvitationEditor event={event} title="Add New Invitation" intent="add" />
+	)
 }

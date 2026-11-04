@@ -11,7 +11,6 @@ import {
 	UserIcon,
 } from 'lucide-react'
 import { useState } from 'react'
-import { useMediaQuery } from 'react-responsive'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
@@ -21,17 +20,48 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '~/components/ui/dialog'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const user = await requireAdminAccess(request)
+	const tenantFilter = getTenantFilter(user)
 
-	const { data, totalPages, currentPage } = await filterAndPaginate({
+	// System seed users that should be hidden from tenant admins
+	const SYSTEM_SEED_USERS = [
+		'focal',
+		'firstvalidator',
+		'secondvalidator',
+		'badgeprinter',
+		'dispatcher',
+		'tenantadmin',
+	]
+
+	// For tenant admins, exclude audit logs from system seed users and global admins
+	const whereFilter = user.isGlobalAdmin
+		? tenantFilter
+		: {
+				...tenantFilter,
+				// Exclude audit logs from system seed users
+				user: {
+					username: { notIn: SYSTEM_SEED_USERS },
+					// Also exclude audit logs from global admins
+					NOT: {
+						roles: {
+							some: {
+								name: 'admin',
+							},
+						},
+					},
+				},
+			}
+
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
 		request,
 		model: prisma.auditLog,
+		where: whereFilter,
 		searchFields: ['description', 'entityId'],
-		filterFields: ['entityType', 'action', 'userId'],
+		filterFields: ['entityType', 'action', 'tenantId'],
 		orderBy: [{ createdAt: 'desc' }],
 		select: {
 			id: true,
@@ -48,39 +78,42 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					email: true,
 				},
 			},
+			tenant: {
+				select: {
+					id: true,
+					name: true,
+				},
+			},
 			metadata: true,
 		},
 	})
 
-	const validators = await prisma.user.findMany({
-		where: {
-			roles: {
-				some: {
-					name: {
-						in: ['admin', 'first-validator', 'second-validator', 'printer'],
-					},
+	// Get tenants for global admin filter dropdown
+	const tenants = user.isGlobalAdmin
+		? await prisma.tenant.findMany({
+				select: {
+					id: true,
+					name: true,
 				},
-			},
-		},
-		select: {
-			id: true,
-			username: true,
-		},
-	})
+				orderBy: { name: 'asc' },
+			})
+		: []
 
 	return json({
 		status: 'idle',
 		audits: data,
 		totalPages,
 		currentPage,
-		validators,
+		defaultPageSize,
+		pageSizeOptions,
+		tenants,
+		isGlobalAdmin: user.isGlobalAdmin,
 	} as const)
 }
 
 export default function AuditsRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage } = data
-	const isMobile = useMediaQuery({ maxWidth: 767 })
+	const { totalPages, currentPage, defaultPageSize, pageSizeOptions } = data
 	const [selectedAudit, setSelectedAudit] = useState<any>(null)
 
 	const getActionIcon = (action: string) => {
@@ -93,7 +126,31 @@ export default function AuditsRoute() {
 				return <TrashIcon className="h-4 w-4 text-red-500" />
 			case 'LOGIN':
 			case 'LOGOUT':
+			case 'SESSION_REVOKE':
 				return <UserIcon className="h-4 w-4 text-purple-500" />
+			case 'LOGIN_FAILED':
+				return <UserIcon className="h-4 w-4 text-red-500" />
+			case 'PASSWORD_RESET':
+			case 'PASSWORD_CHANGE':
+			case 'TWO_FACTOR_ENABLE':
+			case 'TWO_FACTOR_DISABLE':
+				return <UserIcon className="h-4 w-4 text-orange-500" />
+			case 'APPROVE':
+				return <ActivityIcon className="h-4 w-4 text-green-500" />
+			case 'REJECT':
+				return <ActivityIcon className="h-4 w-4 text-red-500" />
+			case 'PRINT':
+			case 'REPRINT':
+				return <FileIcon className="h-4 w-4 text-blue-500" />
+			case 'COLLECT':
+				return <FileIcon className="h-4 w-4 text-green-500" />
+			case 'BYPASS':
+				return <ActivityIcon className="h-4 w-4 text-yellow-500" />
+			case 'VERIFY':
+				return <EyeIcon className="h-4 w-4 text-teal-500" />
+			case 'IMPERSONATE':
+			case 'IMPERSONATE_END':
+				return <UserIcon className="h-4 w-4 text-yellow-500" />
 			default:
 				return <ActivityIcon className="h-4 w-4 text-gray-500" />
 		}
@@ -109,6 +166,23 @@ export default function AuditsRoute() {
 						autoSubmit={true}
 						showAddButton={false}
 						filters={[
+							// Tenant filter (only for global admins)
+							...(data.isGlobalAdmin
+								? [
+										{
+											name: 'tenantId',
+											label: 'Tenant',
+											type: 'select' as const,
+											options: [
+												{ value: 'all', label: 'All Tenants' },
+												...data.tenants.map(tenant => ({
+													value: tenant.id,
+													label: tenant.name,
+												})),
+											],
+										},
+									]
+								: []),
 							{
 								name: 'action',
 								label: 'Action',
@@ -119,13 +193,25 @@ export default function AuditsRoute() {
 									{ value: 'UPDATE', label: 'Update' },
 									{ value: 'DELETE', label: 'Delete' },
 									{ value: 'LOGIN', label: 'Login' },
+									{ value: 'LOGIN_FAILED', label: 'Login Failed' },
 									{ value: 'LOGOUT', label: 'Logout' },
+									{ value: 'PASSWORD_RESET', label: 'Password Reset' },
+									{ value: 'PASSWORD_CHANGE', label: 'Password Change' },
+									{ value: 'TWO_FACTOR_ENABLE', label: '2FA Enable' },
+									{ value: 'TWO_FACTOR_DISABLE', label: '2FA Disable' },
+									{ value: 'SESSION_REVOKE', label: 'Session Revoke' },
 									{ value: 'APPROVE', label: 'Approve' },
 									{ value: 'REJECT', label: 'Reject' },
 									{ value: 'EXPORT', label: 'Export' },
 									{ value: 'IMPORT', label: 'Import' },
 									{ value: 'PRINT', label: 'Print' },
+									{ value: 'COLLECT', label: 'Collect' },
 									{ value: 'BYPASS', label: 'Bypass' },
+									{ value: 'REPRINT', label: 'Reprint' },
+									{ value: 'VERIFY', label: 'Verify' },
+									{ value: 'IMPERSONATE', label: 'Impersonate' },
+									{ value: 'IMPERSONATE_END', label: 'Impersonate End' },
+									{ value: 'OTHER', label: 'Other' },
 								],
 							},
 							{
@@ -142,19 +228,8 @@ export default function AuditsRoute() {
 									{ value: 'WORKFLOW', label: 'Workflow' },
 									{ value: 'INVITATION', label: 'Invitation' },
 									{ value: 'TEMPLATE', label: 'Template' },
+									{ value: 'SESSION', label: 'Session' },
 									{ value: 'SYSTEM', label: 'System' },
-								],
-							},
-							{
-								name: 'userId',
-								label: 'User',
-								type: 'select',
-								options: [
-									{ value: 'all', label: 'All' },
-									...data.validators.map(user => ({
-										value: user.id,
-										label: user.username,
-									})),
 								],
 							},
 						]}
@@ -192,6 +267,24 @@ export default function AuditsRoute() {
 									'System'
 								),
 						},
+						// Tenant column (only for global admins)
+						...(data.isGlobalAdmin
+							? [
+									{
+										key: 'tenant',
+										header: 'Tenant',
+										render: (audit: any) =>
+											audit.tenant ? (
+												<div className="flex items-center space-x-2">
+													<BuildingIcon className="h-4 w-4 text-primary" />
+													<span>{audit.tenant.name}</span>
+												</div>
+											) : (
+												<span className="text-muted-foreground">-</span>
+											),
+									},
+								]
+							: []),
 						{
 							key: 'createdAt',
 							header: 'Date',
@@ -214,10 +307,12 @@ export default function AuditsRoute() {
 						},
 					]}
 					status={data.status}
-					isMobile={isMobile}
+					
 					keyExtractor={audit => audit.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
+					defaultPageSize={defaultPageSize}
+					pageSizeOptions={pageSizeOptions}
 				/>
 			</div>
 
@@ -236,7 +331,7 @@ export default function AuditsRoute() {
 									<CardTitle>Basic Information</CardTitle>
 								</CardHeader>
 								<CardContent>
-									<dl className="grid grid-cols-2 gap-4">
+									<dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 										<div>
 											<dt className="font-medium text-gray-500">Action</dt>
 											<dd className="flex items-center gap-2">
@@ -270,7 +365,7 @@ export default function AuditsRoute() {
 									<CardTitle>Context</CardTitle>
 								</CardHeader>
 								<CardContent>
-									<dl className="grid grid-cols-2 gap-4">
+									<dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 										<div>
 											<dt className="font-medium text-gray-500">User</dt>
 											<dd>

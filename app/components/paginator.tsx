@@ -19,6 +19,8 @@ import { Icon } from './ui/icon'
 type PaginationProps = {
 	totalPages: number
 	currentPage: number
+	defaultPageSize?: number
+	pageSizeOptions?: number[]
 }
 
 export function setSearchParamsString(
@@ -42,10 +44,16 @@ export function setSearchParamsString(
 export const Paginator: React.FC<PaginationProps> = ({
 	totalPages,
 	currentPage,
+	defaultPageSize = 10,
+	pageSizeOptions = [10, 20, 50, 100],
 }) => {
 	const navigate = useNavigate()
 	const [searchParams] = useSearchParams()
 	const pageNumbers = new Set<number>()
+
+	// Ensure default page size is included in options
+	const allOptions = [...new Set([...pageSizeOptions, defaultPageSize])].sort((a, b) => a - b)
+	const currentPageSize = searchParams.get('pageSize') || String(defaultPageSize)
 
 	// Always include the first page
 	pageNumbers.add(1)
@@ -64,10 +72,10 @@ export const Paginator: React.FC<PaginationProps> = ({
 
 	return (
 		<Pagination className="justify-end">
-			<PaginationContent>
+			<PaginationContent className="flex-wrap">
 				<PaginationItem>
 					<Select
-						defaultValue={searchParams.get('pageSize') || '10'}
+						defaultValue={currentPageSize}
 						onValueChange={value => {
 							navigate({
 								search: setSearchParamsString(searchParams, {
@@ -78,13 +86,14 @@ export const Paginator: React.FC<PaginationProps> = ({
 						}}
 					>
 						<SelectTrigger className="w-[100px]">
-							<SelectValue placeholder={searchParams.get('pageSize') || '10'} />
+							<SelectValue placeholder={currentPageSize} />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="10">10</SelectItem>
-							<SelectItem value="20">20</SelectItem>
-							<SelectItem value="50">50</SelectItem>
-							<SelectItem value="100">100</SelectItem>
+							{allOptions.map(size => (
+								<SelectItem key={size} value={String(size)}>
+									{size}
+								</SelectItem>
+							))}
 							<SelectItem value="All">All</SelectItem>
 						</SelectContent>
 					</Select>
@@ -119,11 +128,11 @@ export const Paginator: React.FC<PaginationProps> = ({
 					<React.Fragment key={page}>
 						{/* Render an ellipsis if there's a gap in the sequence */}
 						{i > 0 && page - array[i - 1] > 1 && (
-							<PaginationItem>
+							<PaginationItem className="hidden sm:flex">
 								<PaginationEllipsis />
 							</PaginationItem>
 						)}
-						<PaginationItem>
+						<PaginationItem className="hidden sm:flex">
 							<PaginationLink
 								to={{
 									search: setSearchParamsString(searchParams, {

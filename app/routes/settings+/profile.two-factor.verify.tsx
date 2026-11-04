@@ -14,12 +14,13 @@ import {
 	useLoaderData,
 	useNavigation,
 } from '@remix-run/react'
+import { Check, Copy, KeyRound, QrCode, Shield, Type } from 'lucide-react'
 import * as QRCode from 'qrcode'
+import { useEffect, useRef, useState } from 'react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { z } from 'zod'
 import { InputField } from '~/components/conform/InputField'
 import { Field, FieldError } from '~/components/forms'
-import { Alert, AlertDescription } from '~/components/ui/alert'
 import { Button } from '~/components/ui/button'
 import {
 	Card,
@@ -31,7 +32,9 @@ import {
 import { Label } from '~/components/ui/label'
 import { StatusButton } from '~/components/ui/status-button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '~/components/ui/tabs'
-import { requireUserId, requireUserWithRoles } from '~/utils/auth.server'
+import { AuditAction, AuditEntityType } from '@prisma/client'
+import { auditRequest } from '~/utils/audit.server'
+import { requireUserId } from '~/utils/auth.server'
 import {
 	twoFAVerificationType,
 	twoFAVerifyVerificationType,
@@ -43,17 +46,14 @@ import { redirectWithToast } from '~/utils/toast.server'
 import { isCodeValid } from '~/utils/verification.server'
 
 const VerifySchema = z.object({
-	code: z.string().min(6).max(6),
+	code: z
+		.string({ required_error: 'Please enter the verification code' })
+		.min(6, 'Code must be 6 digits')
+		.max(6, 'Code must be 6 digits')
+		.regex(/^\d+$/, 'Code must contain only numbers'),
 })
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, [
-		'admin',
-		'first-validator',
-		'second-validator',
-		'printer',
-	])
-
 	const userId = await requireUserId(request)
 
 	const verification = await prisma.verification.findUnique({
@@ -82,24 +82,25 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		select: { email: true },
 	})
 
+	const issuer = new URL(getDomainUrl(request)).host
+
 	const otpUri = getTOTPAuthUri({
 		...verification,
 		accountName: user.email,
-		issuer: new URL(getDomainUrl(request)).host,
+		issuer,
 	})
 
 	const qrCode = await QRCode.toDataURL(otpUri)
 
-	return json({ qrCode, otpUri })
+	return json({
+		qrCode,
+		secret: verification.secret,
+		issuer,
+		email: user.email,
+	})
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	await requireUserWithRoles(request, [
-		'admin',
-		'first-validator',
-		'second-validator',
-		'printer',
-	])
 	const userId = await requireUserId(request)
 	const formData = await request.formData()
 	await validateCSRF(formData, request.headers)
@@ -124,7 +125,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					ctx.addIssue({
 						path: ['code'],
 						code: z.ZodIssueCode.custom,
-						message: `Invalid code`,
+						message: 'Invalid code. Please check and try again.',
 					})
 					return z.NEVER
 				}
@@ -153,17 +154,68 @@ export async function action({ request }: ActionFunctionArgs) {
 		},
 	})
 
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		select: { id: true, username: true, email: true, tenantId: true },
+	})
+
+	await auditRequest({
+		request,
+		action: AuditAction.TWO_FACTOR_ENABLE,
+		entityType: AuditEntityType.USER,
+		entityId: userId,
+		description: `Two-factor authentication enabled for ${user?.username}`,
+		userId,
+		tenantId: user?.tenantId,
+		metadata: {
+			user: { id: user?.id, username: user?.username, email: user?.email },
+		},
+	})
+
 	throw await redirectWithToast('/settings/profile/two-factor', {
 		type: 'success',
-		title: 'Enabled',
-		description: 'Two-factor authentication has been enabled.',
+		title: '2FA Enabled',
+		description: 'Two-factor authentication has been enabled successfully.',
 	})
+}
+
+function CopyButton({ text }: { text: string }) {
+	const [copied, setCopied] = useState(false)
+
+	const handleCopy = async () => {
+		await navigator.clipboard.writeText(text)
+		setCopied(true)
+		setTimeout(() => setCopied(false), 2000)
+	}
+
+	return (
+		<Button
+			type="button"
+			variant="outline"
+			size="sm"
+			onClick={handleCopy}
+			className="shrink-0"
+		>
+			{copied ? (
+				<>
+					<Check className="mr-2 h-4 w-4" />
+					Copied
+				</>
+			) : (
+				<>
+					<Copy className="mr-2 h-4 w-4" />
+					Copy
+				</>
+			)}
+		</Button>
+	)
 }
 
 export default function TwoFactorVerifyRoute() {
 	const data = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
+	const codeInputRef = useRef<HTMLInputElement>(null)
 
 	const isPending = useIsPending()
 	const pendingIntent = isPending ? navigation.formData?.get('intent') : null
@@ -178,85 +230,161 @@ export default function TwoFactorVerifyRoute() {
 		shouldRevalidate: 'onBlur',
 	})
 
+	// Auto-focus the code input on mount
+	useEffect(() => {
+		codeInputRef.current?.focus()
+	}, [])
+
 	return (
-		<Card className="mx-auto w-full max-w-lg">
-			<CardHeader>
-				<CardTitle>Set Up Two-Factor Authentication</CardTitle>
-				<CardDescription>Enhance the security of your account</CardDescription>
-			</CardHeader>
-			<CardContent>
-				<Tabs defaultValue="qr">
-					<TabsList className="grid w-full grid-cols-2">
-						<TabsTrigger value="qr">QR Code</TabsTrigger>
-						<TabsTrigger value="manual">Manual Entry</TabsTrigger>
-					</TabsList>
-					<TabsContent value="qr">
-						<div className="mt-4 flex flex-col items-center gap-4">
-							<img
-								alt="QR code for 2FA"
-								src={data.qrCode}
-								className="h-56 w-56"
-							/>
-							<p className="text-center text-sm">
-								Scan this QR code with your authenticator app.
-							</p>
+		<div className="mx-auto max-w-lg space-y-6">
+			<Card>
+				<CardHeader>
+					<CardTitle className="flex items-center gap-2">
+						<Shield className="h-5 w-5" />
+						Set Up Two-Factor Authentication
+					</CardTitle>
+					<CardDescription>
+						Scan the QR code with your authenticator app to get started
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-6">
+					{/* Step 1: Scan QR Code */}
+					<div className="space-y-4">
+						<div className="flex items-center gap-3">
+							<div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
+								1
+							</div>
+							<p className="font-medium">Scan the QR code with your authenticator app</p>
 						</div>
-					</TabsContent>
-					<TabsContent value="manual">
-						<div className="mt-4">
-							<p className="mb-2 text-sm">
-								If you can't scan the QR code, manually add this account to your
-								authenticator app using this code:
-							</p>
-							<Alert>
-								<AlertDescription>
-									<code className="break-all text-xs">{data.otpUri}</code>
-								</AlertDescription>
-							</Alert>
-						</div>
-					</TabsContent>
-				</Tabs>
 
-				<Alert className="mt-6">
-					<AlertDescription>
-						Once you've added the account, enter the code from your
-						authenticator app below. After enabling 2FA, you'll need to enter a
-						code from your authenticator app every time you log in or perform
-						important actions. Do not lose access to your authenticator app, or
-						you may lose access to your account.
-					</AlertDescription>
-				</Alert>
+						<Tabs defaultValue="qr" className="w-full">
+							<TabsList className="grid w-full grid-cols-1 sm:grid-cols-2">
+								<TabsTrigger value="qr" className="flex items-center gap-2">
+									<QrCode className="h-4 w-4" />
+									QR Code
+								</TabsTrigger>
+								<TabsTrigger value="manual" className="flex items-center gap-2">
+									<Type className="h-4 w-4" />
+									Manual Entry
+								</TabsTrigger>
+							</TabsList>
 
-				<Form className="mt-6 space-y-6" method="POST" {...getFormProps(form)}>
-					<AuthenticityTokenInput />
-					<Field>
-						<Label htmlFor={fields.code.id}>Verification Code</Label>
-						<InputField meta={fields.code} type="text" />
-						{fields.code.errors && (
-							<FieldError>{fields.code.errors}</FieldError>
-						)}
-					</Field>
-					<div className="flex justify-between gap-4">
-						<StatusButton
-							className="w-full"
-							status={
-								pendingIntent === 'verify'
-									? 'pending'
-									: (actionData?.result.status ?? 'idle')
-							}
-							type="submit"
-							name="intent"
-							value="verify"
-							disabled={isPending}
-						>
-							{isPending ? 'Verifying...' : 'Verify and Enable 2FA'}
-						</StatusButton>
-						<Button variant="outline" className="w-full" asChild>
-							<Link to="/settings/profile/two-factor">Cancel</Link>
-						</Button>
+							<TabsContent value="qr" className="mt-4">
+								<div className="flex flex-col items-center space-y-4">
+									<div className="rounded-xl border-2 border-dashed border-muted-foreground/25 bg-white p-4">
+										<img
+											alt="QR code for 2FA setup"
+											src={data.qrCode}
+											className="h-48 w-48"
+										/>
+									</div>
+									<p className="text-center text-sm text-muted-foreground">
+										Open your authenticator app and scan this QR code
+									</p>
+								</div>
+							</TabsContent>
+
+							<TabsContent value="manual" className="mt-4">
+								<div className="space-y-4">
+									<p className="text-sm text-muted-foreground">
+										If you can't scan the QR code, manually enter this information in your authenticator app:
+									</p>
+
+									<div className="space-y-3">
+										<div className="rounded-lg border bg-muted/50 p-3">
+											<p className="mb-1 text-xs font-medium text-muted-foreground">Account</p>
+											<p className="font-mono text-sm">{data.email}</p>
+										</div>
+
+										<div className="rounded-lg border bg-muted/50 p-3">
+											<p className="mb-1 text-xs font-medium text-muted-foreground">Issuer</p>
+											<p className="font-mono text-sm">{data.issuer}</p>
+										</div>
+
+										<div className="rounded-lg border bg-muted/50 p-3">
+											<div className="flex items-start justify-between gap-2">
+												<div className="min-w-0 flex-1">
+													<p className="mb-1 text-xs font-medium text-muted-foreground">Secret Key</p>
+													<p className="break-all font-mono text-sm">{data.secret}</p>
+												</div>
+												<CopyButton text={data.secret} />
+											</div>
+										</div>
+									</div>
+								</div>
+							</TabsContent>
+						</Tabs>
 					</div>
-				</Form>
-			</CardContent>
-		</Card>
+
+					{/* Step 2: Enter Code */}
+					<div className="space-y-4">
+						<div className="flex items-center gap-3">
+							<div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
+								2
+							</div>
+							<p className="font-medium">Enter the 6-digit verification code</p>
+						</div>
+
+						<div className="rounded-lg border bg-muted/50 p-4">
+							<div className="flex items-start gap-3">
+								<KeyRound className="mt-0.5 h-5 w-5 text-muted-foreground" />
+								<p className="text-sm text-muted-foreground">
+									After adding the account, your authenticator app will show a 6-digit code that changes every 30 seconds. Enter the current code below.
+								</p>
+							</div>
+						</div>
+
+						<Form method="POST" {...getFormProps(form)}>
+							<AuthenticityTokenInput />
+
+							<div className="space-y-4">
+								<Field>
+									<Label htmlFor={fields.code.id}>Verification Code</Label>
+									<InputField
+										meta={fields.code}
+										type="text"
+										inputMode="numeric"
+										autoComplete="one-time-code"
+										placeholder="000000"
+										maxLength={6}
+										className="font-mono text-center text-lg tracking-widest"
+									/>
+									{fields.code.errors && (
+										<FieldError>{fields.code.errors}</FieldError>
+									)}
+								</Field>
+
+								<div className="flex gap-3">
+									<StatusButton
+										className="flex-1"
+										status={
+											pendingIntent === 'verify'
+												? 'pending'
+												: (actionData?.result?.status ?? 'idle')
+										}
+										type="submit"
+										name="intent"
+										value="verify"
+										disabled={isPending}
+									>
+										{isPending && pendingIntent === 'verify' ? 'Verifying...' : 'Verify & Enable 2FA'}
+									</StatusButton>
+									<Button
+										type="submit"
+										name="intent"
+										value="cancel"
+										variant="outline"
+										className="flex-1"
+										disabled={isPending}
+									>
+										Cancel
+									</Button>
+								</div>
+							</div>
+						</Form>
+					</div>
+				</CardContent>
+			</Card>
+		</div>
 	)
 }

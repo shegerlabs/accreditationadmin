@@ -30,7 +30,6 @@ import { hydrateRoot } from 'react-dom/client'
 // 	})
 // })
 
-// Ensure React is properly loaded before hydration
 startTransition(() => {
 	hydrateRoot(
 		document,

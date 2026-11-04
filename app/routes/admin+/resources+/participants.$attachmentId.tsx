@@ -1,19 +1,26 @@
 import { type LoaderFunctionArgs } from '@remix-run/node'
 import createDOMPurify from 'dompurify'
 import { JSDOM } from 'jsdom'
+import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 import { getFile } from '~/utils/storage.server'
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
+	const currentUser = await requireAdminAccess(request)
+	const tenantFilter = getTenantFilter(currentUser)
+
 	const { attachmentId } = params
 	const url = new URL(request.url)
 	const mode = url.searchParams.get('mode') || 'download'
 
 	invariantResponse(attachmentId, 'Attachment ID is required', { status: 400 })
 
-	const attachment = await prisma.participantDocument.findUnique({
-		where: { id: attachmentId },
+	const attachment = await prisma.participantDocument.findFirst({
+		where: {
+			id: attachmentId,
+			participant: tenantFilter,
+		},
 		include: {
 			participant: true,
 		},

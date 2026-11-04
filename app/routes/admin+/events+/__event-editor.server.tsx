@@ -11,7 +11,7 @@ import { redirectWithToast } from '~/utils/toast.server'
 import { EventDeleteSchema, EventEditorSchema } from './__event-editor'
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await requireUserWithRoles(request, ['admin'])
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const formData = await request.formData()
 	checkHoneypot(formData)
@@ -30,8 +30,29 @@ export async function action({ request }: ActionFunctionArgs) {
 				{ status: submission.status === 'error' ? 400 : 200 },
 			)
 		}
-		const event = await prisma.event.delete({
+
+		// Check if event is already deleted or not in draft status
+		const existingEvent = await prisma.event.findUnique({
 			where: { id: submission.value.id },
+			select: { deletedAt: true, status: true },
+		})
+		if (existingEvent?.deletedAt) {
+			throw json(
+				{ message: 'This event has already been deleted' },
+				{ status: 400 },
+			)
+		}
+		if (existingEvent?.status !== 'DRAFT') {
+			throw json(
+				{ message: 'Only draft events can be deleted' },
+				{ status: 400 },
+			)
+		}
+
+		// Soft delete - set deletedAt instead of actually deleting
+		const event = await prisma.event.update({
+			where: { id: submission.value.id },
+			data: { deletedAt: new Date() },
 			select: {
 				id: true,
 				name: true,
@@ -42,12 +63,7 @@ export async function action({ request }: ActionFunctionArgs) {
 				status: true,
 				createdAt: true,
 				updatedAt: true,
-				meetings: true,
-				restrictions: true,
-				workflows: true,
-				invitations: true,
-				participants: true,
-				templates: true,
+				deletedAt: true,
 			},
 		})
 
@@ -56,7 +72,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			action: AuditAction.DELETE,
 			entityType: AuditEntityType.EVENT,
 			entityId: submission.value.id,
-			description: 'Event deleted',
+			description: 'Event soft deleted',
 			userId: user.id,
 			metadata: {
 				event,
@@ -66,7 +82,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		return redirectWithToast('/admin/events', {
 			type: 'success',
 			title: `Event Deleted`,
-			description: `Event deleted successfully.`,
+			description: `Event "${event.name}" has been deleted. You can restore it from the deleted events list.`,
 		})
 	}
 

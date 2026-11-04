@@ -1,7 +1,6 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { useLoaderData } from '@remix-run/react'
-import { EditIcon, ListIcon, UserIcon } from 'lucide-react'
-import { useMediaQuery } from 'react-responsive'
+import { EditIcon, ListIcon, Trash2Icon, UserIcon } from 'lucide-react'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
@@ -9,7 +8,7 @@ import { filterAndPaginate, prisma } from '~/utils/db.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, ['admin'])
-	const { data, totalPages, currentPage } = await filterAndPaginate({
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
 		request,
 		model: prisma.menu,
 		searchFields: ['name'],
@@ -21,13 +20,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		menus: data,
 		totalPages,
 		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
 	} as const)
 }
 
 export default function MenusPage() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage } = data
-	const isMobile = useMediaQuery({ maxWidth: 767 })
+	const { totalPages, currentPage, defaultPageSize, pageSizeOptions } = data
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -37,7 +37,7 @@ export default function MenusPage() {
 						status={data.status}
 						action="/admin/menus"
 						autoSubmit={false}
-						showAddButton={false}
+						showAddButton={true}
 					/>
 				</div>
 				<DataList
@@ -68,12 +68,20 @@ export default function MenusPage() {
 							href: (menu: any) => `/admin/menus/${menu.id}/edit`,
 							variant: 'outline' as const,
 						},
+						{
+							label: 'Delete',
+							icon: <Trash2Icon className="h-4 w-4" />,
+							href: (menu: any) => `/admin/menus/${menu.id}/delete`,
+							variant: 'outline' as const,
+						},
 					]}
 					status={data.status}
-					isMobile={isMobile}
+					
 					keyExtractor={menu => menu.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
+					defaultPageSize={defaultPageSize}
+					pageSizeOptions={pageSizeOptions}
 				/>
 			</div>
 		</div>

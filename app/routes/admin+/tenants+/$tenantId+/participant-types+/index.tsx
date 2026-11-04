@@ -1,18 +1,17 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
-import { useLoaderData, useParams } from '@remix-run/react'
+import { Link, useLoaderData, useParams } from '@remix-run/react'
 import { EditIcon, TrashIcon, UserIcon } from 'lucide-react'
-import { useMediaQuery } from 'react-responsive'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId } = params
 
-	const { data, totalPages, currentPage } = await filterAndPaginate({
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
 		request,
 		model: prisma.participantType,
 		searchFields: ['name'],
@@ -25,13 +24,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		participantTypes: data,
 		totalPages,
 		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
 	} as const)
 }
 
 export default function RolesListPage() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage } = data
-	const isMobile = useMediaQuery({ maxWidth: 767 })
+	const { totalPages, currentPage, defaultPageSize, pageSizeOptions } = data
 
 	const { tenantId } = useParams()
 	return (
@@ -51,10 +51,10 @@ export default function RolesListPage() {
 							key: 'name',
 							header: 'Name',
 							render: (participantType: any) => (
-								<div className="flex items-center space-x-2">
+								<Link to={`/admin/tenants/${tenantId}/participant-types/${participantType.id}/edit`} className="flex items-center space-x-2">
 									<UserIcon className="h-4 w-4 text-primary" />
 									<span>{participantType.name}</span>
-								</div>
+								</Link>
 							),
 						},
 						{
@@ -62,24 +62,6 @@ export default function RolesListPage() {
 							header: 'Priority',
 							render: (participantType: any) => (
 								<span>{participantType.priority}</span>
-							),
-						},
-						{
-							key: 'canSendPrivateRequest',
-							header: 'Private',
-							render: (participantType: any) => (
-								<span>
-									{participantType.canSendPrivateRequest ? 'Yes' : 'No'}
-								</span>
-							),
-						},
-						{
-							key: 'canSendAnonymousRequest',
-							header: 'Anonymous',
-							render: (participantType: any) => (
-								<span>
-									{participantType.canSendAnonymousRequest ? 'Yes' : 'No'}
-								</span>
 							),
 						},
 						{
@@ -129,10 +111,12 @@ export default function RolesListPage() {
 						},
 					]}
 					status={data.status}
-					isMobile={isMobile}
+					
 					keyExtractor={participantType => participantType.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
+					defaultPageSize={defaultPageSize}
+					pageSizeOptions={pageSizeOptions}
 				/>
 			</div>
 		</div>

@@ -7,7 +7,7 @@ import { VenueEditor } from './__venue-editor'
 export { action } from './__venue-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId, venueId } = params
 

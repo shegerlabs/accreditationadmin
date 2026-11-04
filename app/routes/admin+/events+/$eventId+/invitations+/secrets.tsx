@@ -7,7 +7,7 @@ import { SecretsEditor } from './__secrets-editor'
 export { action } from './__invitation-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { eventId } = params
 

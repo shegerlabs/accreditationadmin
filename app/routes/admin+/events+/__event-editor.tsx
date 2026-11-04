@@ -72,6 +72,8 @@ export function EventEditor({
 	event,
 	title,
 	intent,
+	isGlobalAdmin,
+	userTenantId,
 }: {
 	event?: SerializeFrom<
 		Pick<
@@ -87,11 +89,19 @@ export function EventEditor({
 	>
 	title: string
 	intent?: 'add' | 'edit' | 'delete'
+	isGlobalAdmin?: boolean
+	userTenantId?: string | null
 }) {
 	const { tenants } = useOutletContext<{ tenants: Tenant[] }>()
 	const actionData = useActionData<typeof action>()
 	const disabled = intent === 'delete'
 	const schema = intent === 'delete' ? EventDeleteSchema : EventEditorSchema
+
+	// For tenant admins, use their assigned tenantId directly
+	// For global admins, show the tenant dropdown
+	const defaultTenantId = event?.tenantId || userTenantId || undefined
+	const showTenantField = isGlobalAdmin === true
+
 	const [form, fields] = useForm({
 		id: 'register-event',
 		constraint: getZodConstraint(schema),
@@ -103,6 +113,7 @@ export function EventEditor({
 		shouldRevalidate: 'onInput',
 		defaultValue: {
 			...event,
+			tenantId: defaultTenantId,
 		},
 	})
 
@@ -134,21 +145,25 @@ export function EventEditor({
 			<HoneypotInputs />
 			<InputField meta={fields.id} type="hidden" />
 
-			<Field>
-				<Label htmlFor={fields.tenantId.id}>Tenant</Label>
-				<SelectField
-					meta={fields.tenantId}
-					items={tenants.map(tenant => ({
-						name: tenant.name,
-						value: tenant.id,
-					}))}
-					disabled={disabled}
-					placeholder="Select Tenant"
-				/>
-				{fields.tenantId.errors && (
-					<FieldError>{fields.tenantId.errors}</FieldError>
-				)}
-			</Field>
+			{showTenantField ? (
+				<Field>
+					<Label htmlFor={fields.tenantId.id}>Tenant</Label>
+					<SelectField
+						meta={fields.tenantId}
+						items={tenants.map(tenant => ({
+							name: tenant.name,
+							value: tenant.id,
+						}))}
+						disabled={disabled}
+						placeholder="Select Tenant"
+					/>
+					{fields.tenantId.errors && (
+						<FieldError>{fields.tenantId.errors}</FieldError>
+					)}
+				</Field>
+			) : (
+				<InputField meta={fields.tenantId} type="hidden" />
+			)}
 			<Field>
 				<Label htmlFor={fields.name.id}>Name</Label>
 				<InputField

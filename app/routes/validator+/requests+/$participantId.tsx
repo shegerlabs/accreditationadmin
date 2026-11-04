@@ -1,32 +1,34 @@
 import { Action } from '@prisma/client'
 import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
-import { Link, Outlet, useLoaderData } from '@remix-run/react'
+import { Link, Outlet, useLoaderData, useSearchParams } from '@remix-run/react'
 import { format } from 'date-fns'
 import {
 	ArrowLeft,
 	Briefcase,
 	Calendar,
-	CalendarCheck2,
+	CheckCircleIcon,
 	CheckIcon,
-	FileImageIcon,
-	Flag,
-	Globe,
-	Mail,
-	MapPin,
-	Pencil,
-	Phone,
-	PrinterIcon,
-	Users,
+	CircleDashedIcon,
+	Edit2Icon,
+	FileCheck,
+	FileImage,
+	FileText,
+	SkipForwardIcon,
+	User,
+	XCircleIcon,
 	XIcon,
 } from 'lucide-react'
-import { parseWithZod } from 'node_modules/@conform-to/zod/parse'
+import { parseWithZod } from '@conform-to/zod'
 import { z } from 'zod'
 import { DocumentPreview } from '~/components/document-preview'
-import { Alert, AlertDescription, AlertTitle } from '~/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '~/components/ui/avatar'
+import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { Card, CardContent } from '~/components/ui/card'
+import {
+	getUserAccessibleStepIds,
+	requireUserWithRoles,
+} from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
@@ -40,27 +42,25 @@ export const ParticipantApprovalSchema = z.object({
 })
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
-	const user = await requireUserWithRoles(request, [
-		'first-validator',
-		'second-validator',
-		'printer',
-	])
+	const user = await requireUserWithRoles(request, ['validator', 'reviewer'])
 	const { participantId } = params
 
-	const userRoles = await prisma.user.findUniqueOrThrow({
-		where: { id: user.id },
-		include: {
-			roles: true,
-		},
-	})
+	// Get step IDs the user has access to via UserEventAccess
+	const accessibleStepIds = await getUserAccessibleStepIds(user.id, ['validator', 'reviewer'])
+	const stepFilter = { stepId: { in: accessibleStepIds } }
 
 	const participant = await prisma.participant.findUnique({
 		where: {
 			id: participantId,
-			step: { roleId: { in: userRoles.roles.map(role => role.id) } },
+			...stepFilter,
 		},
 		include: {
 			documents: true,
+			title: {
+				select: {
+					name: true,
+				},
+			},
 			country: {
 				select: {
 					name: true,
@@ -82,13 +82,44 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			},
 			approvals: {
 				orderBy: {
-					createdAt: 'desc',
+					createdAt: 'asc',
+				},
+				select: {
+					id: true,
+					action: true,
+					result: true,
+					remarks: true,
+					createdAt: true,
+					step: {
+						select: {
+							name: true,
+							role: {
+								select: {
+									name: true,
+								},
+							},
+						},
+					},
+					user: {
+						select: {
+							username: true,
+						},
+					},
+				},
+			},
+			step: {
+				include: {
+					role: {
+						select: {
+							name: true,
+						},
+					},
 				},
 			},
 		},
 	})
 
-	invariantResponse(participant, 'Not Found', { status: 404 })
+	invariantResponse(participant, 'Access denied', { status: 403 })
 
 	const generalInfo = {
 		id: participant.id,
@@ -97,7 +128,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		participantTypeId: participant.participantTypeId,
 		participantType: participant.participantType.name,
 		gender: participant.gender,
-		title: participant.title,
+		title: participant.title?.name ?? '',
 		firstName: participant.firstName,
 		familyName: participant.familyName,
 		dateOfBirth: participant.dateOfBirth,
@@ -126,18 +157,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		},
 	})
 
-	const wishlistInfo = {
-		needsVisa: participant.needsVisa,
-		needsCarPass: participant.needsCarPass,
-		vehicleType: participant.vehicleType,
-		vehiclePlateNumber: participant.vehiclePlateNumber,
-		needsCarFromOrganizer: participant.needsCarFromOrganizer,
-		flightNumber: participant.flightNumber,
-		arrivalDate: participant.arrivalDate,
-		meetings: participant.wishList?.split(','),
-		attendClosedSession: participant.attendClosedSession,
-	}
-
 	const photo = participant?.documents.find(doc => doc.documentType === 'PHOTO')
 	const passport = participant?.documents.find(
 		doc => doc.documentType === 'PASSPORT',
@@ -146,44 +165,79 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		doc => doc.documentType === 'LETTER',
 	)
 
-	const approvals = participant?.approvals.map(approval => ({
-		id: approval.id,
-		result: approval.result,
-		remarks: approval.remarks,
-	}))
+	const SYSTEM_STEPS = ['Request Received', 'Review Request']
+	const isSystemStep = (stepName: string) =>
+		SYSTEM_STEPS.some(name =>
+			stepName.toLowerCase().includes(name.toLowerCase()),
+		)
 
-	// Add security headers
-	const headers = new Headers({
-		'Content-Security-Policy':
-			"default-src 'self'; script-src 'none'; object-src 'none';",
+	const getActionLabel = (action: string) => {
+		const labels: Record<string, string> = {
+			APPROVE: 'Approved',
+			REJECT: 'Rejected',
+			PRINT: 'Printed',
+			COLLECT: 'Collected',
+			NOTIFY: 'Notified',
+			ARCHIVE: 'Archived',
+			BYPASS: 'Bypassed',
+		}
+		return labels[action] || action
+	}
+
+	const approvals = participant?.approvals.map(approval => {
+		const isBypass = approval.action === 'BYPASS'
+		const isAdminReject = approval.remarks?.includes(
+			'Rejected by administrator',
+		)
+
+		return {
+			id: approval.id,
+			result: approval.result,
+			remarks: approval.remarks,
+			createdAt: approval.createdAt,
+			stepName: isBypass
+				? 'Admin Bypass'
+				: isAdminReject
+					? 'Admin Reject'
+					: approval.step.name,
+			stepAction: getActionLabel(approval.action),
+			roleName:
+				isBypass || isAdminReject
+					? 'Admin'
+					: isSystemStep(approval.step.name)
+						? 'System'
+						: approval.step.role.name,
+			username:
+				isBypass || isAdminReject
+					? approval.user?.username || 'Admin'
+					: isSystemStep(approval.step.name)
+						? 'System'
+						: approval.user?.username || 'System',
+		}
 	})
 
-	return json(
-		{
-			general: generalInfo,
-			professional: professionalInfo,
-			wishlist: wishlistInfo,
-			photo,
-			passport,
-			letter,
-			meetings,
-			approvals,
-			// approvals: approvals?.filter(
-			// 	approval => approval.remarks === 'Badge Printed',
-			// ),
+	return json({
+		general: generalInfo,
+		professional: professionalInfo,
+		photo,
+		passport,
+		letter,
+		meetings,
+		approvals,
+		status: participant.status,
+		nextStep: {
+			name: participant.step.name,
+			action: participant.step.action,
+			roleName:
+				participant.step.role.name === 'reviewer'
+					? 'Focal Person'
+					: participant.step.role.name,
 		},
-		{
-			headers,
-		},
-	)
+	})
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await requireUserWithRoles(request, [
-		'first-validator',
-		'second-validator',
-		'printer',
-	])
+	const user = await requireUserWithRoles(request, ['validator', 'reviewer'])
 
 	const formData = await request.formData()
 	checkHoneypot(formData)
@@ -204,21 +258,18 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const { id: participantId } = submission.value
 
-	const userRoles = await prisma.user.findUniqueOrThrow({
-		where: { id: user.id },
-		include: {
-			roles: true,
-		},
-	})
+	// Get step IDs the user has access to via UserEventAccess
+	const accessibleStepIds = await getUserAccessibleStepIds(user.id, ['validator', 'reviewer'])
+	const stepFilter = { stepId: { in: accessibleStepIds } }
 
 	const participant = await prisma.participant.findUnique({
 		where: {
 			id: participantId,
-			step: { roleId: { in: userRoles.roles.map(role => role.id) } },
+			...stepFilter,
 		},
 	})
 
-	invariantResponse(participant, 'Not Found', { status: 404 })
+	invariantResponse(participant, 'Access denied', { status: 403 })
 
 	if (intent === 'approve') {
 		const remarks = `Request Approved by ${user.username} (${user.email})`
@@ -230,7 +281,11 @@ export async function action({ request }: ActionFunctionArgs) {
 		await processParticipant(participantId, user.id, Action.REJECT, remarks)
 	}
 
-	return redirectWithToast('/validator/requests', {
+	const url = new URL(request.url)
+	const searchParams = url.searchParams
+	const redirectUrl = `/validator/requests${searchParams.size ? '?' + searchParams.toString() : ''}`
+
+	return redirectWithToast(redirectUrl, {
 		type: 'success',
 		title: `Participant Updated`,
 		description: `Participant updated successfully.`,
@@ -241,265 +296,371 @@ export default function ParticipantProfile() {
 	const {
 		general,
 		professional,
-		wishlist,
 		photo,
 		passport,
 		letter,
 		meetings,
 		approvals,
+		status,
+		nextStep,
 	} = useLoaderData<typeof loader>()
 
+	const [searchParams] = useSearchParams()
+	const paramsSuffix = searchParams.size ? '?' + searchParams.toString() : ''
 	const photoLink = getParticipantDocumentFileSrc(photo?.id ?? '')
 	const passportLink = getParticipantDocumentFileSrc(passport?.id ?? '')
 	const letterLink = getParticipantDocumentFileSrc(letter?.id ?? '')
 	const user = useOptionalUser()
 
+	const documents = [
+		{
+			type: 'PHOTO',
+			label: 'Photo',
+			icon: FileImage,
+			link: photoLink,
+			doc: photo,
+			color: 'bg-violet-500',
+		},
+		{
+			type: 'PASSPORT',
+			label: 'Passport',
+			icon: FileText,
+			link: passportLink,
+			doc: passport,
+			color: 'bg-blue-500',
+		},
+		{
+			type: 'LETTER',
+			label: 'Letter',
+			icon: FileCheck,
+			link: letterLink,
+			doc: letter,
+			color: 'bg-emerald-500',
+		},
+	]
+
 	return (
 		<div className="container mx-auto px-4">
-			{approvals?.[0]?.result === 'FAILURE' && (
-				<Alert variant="destructive">
-					<AlertTitle>Request Rejected</AlertTitle>
-					<AlertDescription>
-						{(approvals[0].remarks ?? '').replace(/^Request Rejected:\s*/, '')}
-					</AlertDescription>
-				</Alert>
-			)}
-			<div className="px-4 py-8 sm:px-4 lg:px-4">
-				<div className="mb-6 flex flex-col sm:flex-row sm:items-center">
-					<Avatar className="h-24 w-24 ring-4 ring-gray-200 sm:h-32 sm:w-32">
-						<AvatarImage src={photoLink} alt={general.firstName} />
-						<AvatarFallback>RC</AvatarFallback>
-					</Avatar>
-					<div className="mt-4 flex-grow sm:ml-6 sm:mt-0">
-						<h1 className="text-3xl font-bold text-gray-900">
-							{general.firstName} {general.familyName} ({general.title})
-						</h1>
-						<p className="text-xl text-gray-600">{professional.jobTitle}</p>
-					</div>
-					<div className="mt-4 flex space-x-2 sm:mt-0">
-						{userHasRoles(user, ['first-validator', 'second-validator']) && (
-							<>
-								<Button size="sm" variant="outline" asChild>
-									<Link to={`/validator/requests/${general.id}/approve`}>
-										<CheckIcon className="h-4 w-4 text-green-500 hover:text-green-700" />
-									</Link>
-								</Button>
-								<Button size="sm" variant="outline" asChild>
-									<Link to={`/validator/requests/${general.id}/reject`}>
-										<XIcon className="h-4 w-4 text-red-500 hover:text-red-700" />
-									</Link>
-								</Button>
-							</>
-						)}
+			<Outlet />
 
-						{userHasRoles(user, ['printer']) && (
-							<>
-								<Button size="sm" variant="outline" asChild>
-									<Link to={`/validator/requests/${general.id}/badge`}>
-										<PrinterIcon className="h-4 w-4 text-red-500 hover:text-red-700" />
+			{/* Header Card */}
+			<div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-emerald-400 via-green-400 to-teal-400 p-[1px] shadow-sm">
+				<div className="absolute inset-0 bg-gradient-to-br from-emerald-400 via-green-400 to-teal-400 opacity-10 blur-xl" />
+				<div className="relative rounded-[10px] bg-white/95 backdrop-blur-sm">
+					<div className="absolute right-0 top-0 h-40 w-40 -translate-y-10 translate-x-10 rounded-full bg-gradient-to-br from-emerald-200/40 to-green-200/40 blur-2xl" />
+					<div className="absolute bottom-0 left-0 h-32 w-32 -translate-x-10 translate-y-10 rounded-full bg-gradient-to-tr from-green-200/40 to-teal-200/40 blur-2xl" />
+
+					<div className="relative p-6">
+						<div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+							<div className="flex items-center gap-4">
+								<div className="relative">
+									<div className="absolute -inset-1 rounded-full bg-gradient-to-br from-emerald-500 via-green-500 to-teal-500 opacity-75 blur-sm" />
+									<Avatar className="relative h-20 w-20 ring-4 ring-white">
+										<AvatarImage src={photoLink} alt={general.firstName} />
+										<AvatarFallback className="bg-gradient-to-br from-emerald-100 to-green-100 text-xl font-semibold text-green-700">
+											{general.firstName[0]}
+											{general.familyName[0]}
+										</AvatarFallback>
+									</Avatar>
+								</div>
+								<div>
+									<h1 className="text-2xl font-bold text-slate-800">
+										{general.title} {general.firstName} {general.familyName}
+									</h1>
+									<p className="font-medium text-slate-600">
+										{professional.jobTitle}
+									</p>
+									<p className="text-sm text-slate-500">
+										{professional.organization}
+									</p>
+								</div>
+							</div>
+
+							{/* Action Buttons */}
+							<div className="flex flex-wrap items-center gap-2">
+								<Button
+									size="sm"
+									variant="outline"
+									className="border-slate-300 hover:bg-slate-100"
+									asChild
+								>
+									<Link to={`/validator/requests${paramsSuffix}`}>
+										<ArrowLeft className="mr-2 h-4 w-4" />
+										Back
 									</Link>
 								</Button>
-							</>
-						)}
-						<Button size="sm" variant="outline" asChild>
-							<Link to={`/validator/requests`}>
-								<ArrowLeft className="h-4 w-4" />
-							</Link>
-						</Button>
-
-						<div className="flex items-center space-x-2">
-							<span className="rounded-full bg-red-500 px-2 py-1 text-xs font-medium text-white">
-								{approvals?.length}
-							</span>
+								{userHasRoles(user, ['validator', 'reviewer']) && (
+									<>
+										<Button size="sm" variant="default" asChild>
+											<Link to={`/validator/requests/${general.id}/approve${paramsSuffix}`}>
+												<CheckIcon className="mr-1.5 h-4 w-4" />
+												Approve
+											</Link>
+										</Button>
+										<Button
+											size="sm"
+											variant="destructive"
+											className="shadow-md"
+											asChild
+										>
+											<Link to={`/validator/requests/${general.id}/reject${paramsSuffix}`}>
+												<XIcon className="mr-1.5 h-4 w-4" />
+												Reject
+											</Link>
+										</Button>
+									</>
+								)}
+							</div>
 						</div>
 					</div>
 				</div>
+			</div>
 
-				<div className="mb-6 grid grid-cols-1">
-					<Outlet />
-				</div>
+			{/* Info Grid */}
+			<div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+				<InfoCard
+					icon={User}
+					label="Personal"
+					items={[
+						{ label: 'Gender', value: general.gender },
+						{
+							label: 'Date of Birth',
+							value: format(new Date(general.dateOfBirth), 'PP'),
+						},
+						{ label: 'Nationality', value: general.nationality },
+						{ label: 'Passport No.', value: general.passportNumber ?? 'N/A' },
+						{
+							label: 'Passport Expiry',
+							value: general.passportExpiry
+								? format(new Date(general.passportExpiry), 'PP')
+								: 'N/A',
+						},
+					]}
+				/>
+				<InfoCard
+					icon={Briefcase}
+					label="Professional"
+					items={[
+						{ label: 'Organization', value: professional.organization },
+						{ label: 'Job Title', value: professional.jobTitle },
+						{ label: 'City', value: professional.city },
+						{ label: 'Country', value: professional.country },
+						{ label: 'Language', value: professional.preferredLanguage ?? 'N/A' },
+					]}
+				/>
+			</div>
 
-				<div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-					<Card className="col-span-2">
-						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-							<CardTitle className="text-lg font-semibold">
-								Participant Details
-							</CardTitle>
-						</CardHeader>
-						<CardContent>
-							<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-								<div className="space-y-4">
-									<InfoItem
-										icon={<Briefcase aria-hidden="true" />}
-										label="Gender"
-										value={general.gender}
-									/>
-									<InfoItem
-										icon={<Users aria-hidden="true" />}
-										label="Organization"
-										value={professional.organization}
-									/>
-									<InfoItem
-										icon={<MapPin aria-hidden="true" />}
-										label="City"
-										value={professional.city}
-									/>
-									<InfoItem
-										icon={<Flag aria-hidden="true" />}
-										label="Country"
-										value={professional.country}
-									/>
-									<InfoItem
-										icon={<Globe aria-hidden="true" />}
-										label="Nationality"
-										value={general.nationality}
-									/>
-								</div>
-								<div className="space-y-4">
-									<InfoItem
-										icon={<Calendar aria-hidden="true" />}
-										label="Date of Birth"
-										value={general.dateOfBirth}
-									/>
-									<InfoItem
-										icon={<Mail aria-hidden="true" />}
-										label="Email"
-										value={professional.email}
-									/>
-									<InfoItem
-										icon={<Phone aria-hidden="true" />}
-										label="Telephone"
-										value={professional.telephone ?? 'N/A'}
-									/>
-									<InfoItem
-										icon={<Globe aria-hidden="true" />}
-										label="Preferred Language"
-										value={professional.preferredLanguage ?? 'N/A'}
-									/>
-									<InfoItem
-										icon={<FileImageIcon aria-hidden="true" />}
-										label="Passport Number"
-										value={general.passportNumber ?? 'N/A'}
-									/>
-									<InfoItem
-										icon={<CalendarCheck2 aria-hidden="true" />}
-										label="Passport Expiry"
-										value={
-											general.passportExpiry
-												? format(new Date(general.passportExpiry), 'PP')
-												: 'N/A'
-										}
-									/>
-								</div>
+			{/* Documents and Meetings Row */}
+			<div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+				{/* Documents Card */}
+				<Card>
+					<CardContent className="p-4">
+						<div className="mb-3 flex items-center gap-2">
+							<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100">
+								<FileImage className="h-4 w-4 text-slate-600" />
 							</div>
-						</CardContent>
-					</Card>
-
-					<Card>
-						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-							<CardTitle className="text-lg font-semibold">Documents</CardTitle>
-						</CardHeader>
-						<CardContent className="space-y-4">
-							{[
-								{ type: 'PHOTO', link: photoLink, doc: photo },
-								{ type: 'PASSPORT', link: passportLink, doc: passport },
-								{ type: 'LETTER', link: letterLink, doc: letter },
-							].map(({ type, link, doc }) => (
-								<div key={type} className="flex-1">
-									{doc ? (
-										<DocumentPreview
-											title={`${type} - ${general.firstName} ${general.familyName}`}
-											documentUrl={link}
-											contentType={doc.contentType}
-											type={type}
-											onDownload={() => {
-												window.open(link, '_blank')
-											}}
-										/>
-									) : (
-										<div className="flex items-center gap-2 space-x-2 font-medium text-gray-400">
-											<FileImageIcon className="h-4 w-4" />
-											<span>{type} (Missing)</span>
-										</div>
-									)}
-								</div>
-							))}
-							<div className="mb-2 flex items-center justify-between">
-								<h3 className="text-lg font-medium text-gray-900">
-									Wishes to Participate
-								</h3>
-								<Button size="sm" variant="outline" asChild>
-									<Link to={`/validator/requests/${general.id}/edit`}>
-										<Pencil className="h-4 w-4" />
-									</Link>
-								</Button>
-							</div>
-							<ul className="list-disc pl-5">
-								{meetings?.map(meeting => (
-									<li key={meeting.id}>{meeting.name}</li>
-								))}
-							</ul>
-							<div>
-								<h3 className="text-lg font-medium text-gray-900">
-									Participant Type
-								</h3>
-
-								<ul className="list-disc pl-5">
-									<li>{general.participantType}</li>
-								</ul>
-							</div>
-							{approvals?.length > 0 && (
-								<div>
-									<h3 className="text-lg font-medium text-gray-900">
-										Approvals
-									</h3>
-									<ul className="list-disc pl-5">
-										{approvals?.map(approval => {
-											if (approval.remarks === 'Badge Printed') {
-												const printCount = approvals.filter(
-													a => a.remarks === 'Badge Printed',
-												).length
-												if (
-													approval ===
-													approvals.find(a => a.remarks === 'Badge Printed')
-												) {
-													return (
-														<li key={approval.id}>
-															{approval.remarks} (x{printCount})
-														</li>
-													)
-												}
-												return null
-											}
-											return <li key={approval.id}>{approval.remarks}</li>
-										})}
-									</ul>
-								</div>
+							<span className="font-semibold text-slate-700">Documents</span>
+						</div>
+						<div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+							{documents.map(
+								({ type, label, icon: Icon, link, doc, color }) => (
+									<div key={type}>
+										{doc ? (
+											<DocumentPreview
+												title={`${general.firstName} ${general.familyName} - ${label}`}
+												documentUrl={link}
+												contentType={doc.contentType}
+												onDownload={() => {
+													const downloadLink = document.createElement('a')
+													downloadLink.href = link
+													downloadLink.download = `${label.toLowerCase()}.${doc.contentType.split('/')[1] || 'file'}`
+													downloadLink.click()
+												}}
+												type={label}
+												icon={Icon}
+												color={color}
+											/>
+										) : (
+											<div className="flex items-center gap-3 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/50 px-3 py-2 text-slate-400">
+												<div
+													className={`flex h-8 w-8 items-center justify-center rounded-lg ${color} opacity-30`}
+												>
+													<Icon className="h-4 w-4 text-white" />
+												</div>
+												<div>
+													<p className="text-sm font-medium">{label}</p>
+													<p className="text-xs">Not uploaded</p>
+												</div>
+											</div>
+										)}
+									</div>
+								),
 							)}
-						</CardContent>
-					</Card>
-				</div>
+						</div>
+					</CardContent>
+				</Card>
+
+				{/* Accreditation Details Card */}
+				<Card>
+					<CardContent className="p-4">
+						<div className="mb-3 flex items-center justify-between">
+							<div className="flex items-center gap-2">
+								<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100">
+									<Calendar className="h-4 w-4 text-slate-600" />
+								</div>
+								<span className="font-semibold text-slate-700">Accreditation Details</span>
+							</div>
+							<Button size="sm" variant="outline" className="h-7 px-2" title="Edit Details" asChild>
+								<Link to={`/validator/requests/${general.id}/edit${paramsSuffix}`}>
+									<Edit2Icon className="h-3.5 w-3.5" />
+								</Link>
+							</Button>
+						</div>
+						<div className="space-y-2">
+							<div className="flex justify-between text-sm">
+								<span className="text-slate-500">Participant Type</span>
+								<Badge variant="secondary" className="bg-emerald-50 text-emerald-700">
+									{general.participantType}
+								</Badge>
+							</div>
+							<div className="flex justify-between text-sm">
+								<span className="text-slate-500">Meetings</span>
+								{meetings && meetings.length > 0 ? (
+									<span className="font-medium text-slate-700">
+										{meetings.map(m => m.name).join(', ')}
+									</span>
+								) : (
+									<span className="text-slate-400">None selected</span>
+								)}
+							</div>
+						</div>
+					</CardContent>
+				</Card>
+			</div>
+
+			{/* Approval History */}
+			<div className="mt-6">
+				<h2 className="mb-4 text-lg font-semibold text-slate-800">
+					Approval History
+				</h2>
+				<Card>
+					<CardContent className="p-4">
+						{approvals && approvals.length > 0 ? (
+							<div className="space-y-2">
+								{approvals.map(approval => (
+									<div
+										key={approval.id}
+										className="flex items-center justify-between rounded-lg border bg-white p-3 text-sm shadow-sm"
+									>
+										<div className="flex items-center gap-3">
+											{approval.result === 'SUCCESS' && (
+												<CheckCircleIcon className="h-5 w-5 text-emerald-500" />
+											)}
+											{approval.result === 'FAILURE' && (
+												<XCircleIcon className="h-5 w-5 text-red-500" />
+											)}
+											{approval.result === 'SKIPPED' && (
+												<SkipForwardIcon className="h-5 w-5 text-amber-500" />
+											)}
+											<div>
+												<span className="font-medium text-slate-800">
+													{approval.stepName}
+												</span>
+												<span className="ml-2 text-slate-500">
+													({approval.stepAction})
+												</span>
+											</div>
+										</div>
+										<div className="text-right text-xs text-slate-500">
+											<div className="font-medium">{approval.username}</div>
+											<div>
+												{format(new Date(approval.createdAt), 'MMM d, HH:mm')}
+											</div>
+										</div>
+									</div>
+								))}
+
+								{/* Next Step */}
+								{status === 'INPROGRESS' && (
+									<div className="mt-4 flex items-center justify-between rounded-lg border-2 border-dashed border-blue-200 bg-blue-50/50 p-3 text-sm">
+										<div className="flex items-center gap-3">
+											<CircleDashedIcon className="h-5 w-5 text-blue-500" />
+											<div>
+												<span className="font-medium text-blue-700">
+													{nextStep.name}
+												</span>
+												<span className="ml-2 text-blue-500">
+													({nextStep.action})
+												</span>
+											</div>
+										</div>
+										<div className="text-right text-xs text-blue-600">
+											<div className="font-medium">PENDING</div>
+											<div>Waiting: {nextStep.roleName}</div>
+										</div>
+									</div>
+								)}
+							</div>
+						) : (
+							<div className="space-y-2">
+								<p className="text-sm text-slate-500">
+									No approval actions yet
+								</p>
+								{status === 'INPROGRESS' && (
+									<div className="flex items-center justify-between rounded-lg border-2 border-dashed border-blue-200 bg-blue-50/50 p-3 text-sm">
+										<div className="flex items-center gap-3">
+											<CircleDashedIcon className="h-5 w-5 text-blue-500" />
+											<div>
+												<span className="font-medium text-blue-700">
+													{nextStep.name}
+												</span>
+												<span className="ml-2 text-blue-500">
+													({nextStep.action})
+												</span>
+											</div>
+										</div>
+										<div className="text-right text-xs text-blue-600">
+											<div className="font-medium">PENDING</div>
+											<div>Waiting: {nextStep.roleName}</div>
+										</div>
+									</div>
+								)}
+							</div>
+						)}
+					</CardContent>
+				</Card>
 			</div>
 		</div>
 	)
 }
 
-function InfoItem({
-	icon,
+function InfoCard({
+	icon: Icon,
 	label,
-	value,
+	items,
 }: {
-	icon: React.ReactNode
+	icon: React.ElementType
 	label: string
-	value: string
+	items: { label: string; value: string }[]
 }) {
 	return (
-		<div className="flex items-center space-x-2">
-			<div className="flex-shrink-0 text-gray-400">{icon}</div>
-			<div>
-				<dt className="text-sm font-medium text-gray-500">{label}</dt>
-				<dd className="mt-1 text-sm text-gray-900">{value}</dd>
-			</div>
-		</div>
+		<Card className="transition-shadow hover:shadow-md">
+			<CardContent className="p-4">
+				<div className="mb-3 flex items-center gap-2">
+					<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100">
+						<Icon className="h-4 w-4 text-slate-600" />
+					</div>
+					<span className="font-semibold text-slate-700">{label}</span>
+				</div>
+				<div className="space-y-2">
+					{items.map(item => (
+						<div key={item.label} className="flex justify-between text-sm">
+							<span className="text-slate-500">{item.label}</span>
+							<span className="font-medium text-slate-700">{item.value}</span>
+						</div>
+					))}
+				</div>
+			</CardContent>
+		</Card>
 	)
 }

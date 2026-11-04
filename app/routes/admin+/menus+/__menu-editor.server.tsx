@@ -8,7 +8,7 @@ import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { redirectWithToast } from '~/utils/toast.server'
-import { MenuEditorSchema } from './__menu-editor'
+import { MenuDeleteSchema, MenuEditorSchema } from './__menu-editor'
 
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await requireUserWithRoles(request, ['admin'])
@@ -17,6 +17,41 @@ export async function action({ request }: ActionFunctionArgs) {
 	await validateCSRF(formData, request.headers)
 
 	const intent = formData.get('intent')
+
+	if (intent === 'delete') {
+		const submission = await parseWithZod(formData, {
+			schema: MenuDeleteSchema,
+			async: true,
+		})
+
+		if (submission.status !== 'success') {
+			return json(
+				{ result: submission.reply() },
+				{ status: submission.status === 'error' ? 400 : 200 },
+			)
+		}
+
+		const menu = await prisma.menu.delete({
+			where: { id: submission.value.id },
+			select: { id: true, name: true, title: true },
+		})
+
+		await auditRequest({
+			request,
+			action: AuditAction.DELETE,
+			entityType: AuditEntityType.MENU,
+			entityId: menu.id,
+			description: 'Menu deleted',
+			userId: user.id,
+			metadata: { menu },
+		})
+
+		return redirectWithToast('/admin/menus', {
+			type: 'success',
+			title: `Menu Deleted`,
+			description: `Menu deleted successfully.`,
+		})
+	}
 
 	const submission = await parseWithZod(formData, {
 		schema: MenuEditorSchema.superRefine(async (data, ctx) => {

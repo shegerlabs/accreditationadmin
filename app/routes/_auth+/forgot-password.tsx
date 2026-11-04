@@ -76,7 +76,6 @@ export async function action({ request }: ActionFunctionArgs) {
 	})
 
 	const { verifyUrl, redirectTo, otp } = await prepareVerification({
-		period: 10 * 60,
 		request,
 		type: 'reset-password',
 		target: usernameOrEmail,

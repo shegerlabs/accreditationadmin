@@ -24,6 +24,7 @@ import {
 	verifiedTimeKey,
 } from './constants'
 import { prisma } from './db.server'
+import { getSetting, SettingKeys } from './settings.server'
 import { sendEmailAzure } from './email.server'
 import { getDomainUrl, invariant } from './misc'
 import { sessionStorage } from './session.server'
@@ -400,18 +401,22 @@ export function getRedirectToUrl({
 }
 
 export async function prepareVerification({
-	period,
+	period: providedPeriod,
 	request,
 	type,
 	target,
 	redirectTo: postVerificationRedirectTo,
 }: {
-	period: number
+	period?: number
 	request: Request
 	type: VerificationTypes
 	target: string
 	redirectTo?: string
 }) {
+	// Get OTP validity from settings if not provided (convert minutes to seconds)
+	const otpValidityMinutes = await getSetting<number>(SettingKeys.OTP_VALIDITY_MINUTES)
+	const period = providedPeriod ?? otpValidityMinutes * 60
+
 	const verifyUrl = getRedirectToUrl({
 		request,
 		type,

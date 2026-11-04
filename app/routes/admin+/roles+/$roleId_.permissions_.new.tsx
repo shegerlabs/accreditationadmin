@@ -9,13 +9,14 @@ import { CheckboxGroupField } from '~/components/conform/CheckboxGroupField'
 import { InputField } from '~/components/conform/InputField'
 import { FormCard } from '~/components/form-card'
 import { SearchBar } from '~/components/search-bar'
-import { requireUserId } from '~/utils/auth.server'
+import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
+	await requireUserWithRoles(request, ['admin'])
 	const { roleId } = params
 	const url = new URL(request.url)
 	const searchParams = url.searchParams || {}
@@ -100,7 +101,7 @@ export const PermissionEditorSchema = z.object({
 })
 
 export async function action({ request }: ActionFunctionArgs) {
-	await requireUserId(request)
+	await requireUserWithRoles(request, ['admin'])
 	const formData = await request.formData()
 	await validateCSRF(formData, request.headers)
 

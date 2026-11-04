@@ -38,10 +38,16 @@ import { csrf } from './utils/csrf.server'
 import { getEnv } from './utils/env.server'
 import { honeypot } from './utils/honeypot.server'
 import { combineHeaders, invariantResponse } from './utils/misc'
+import {
+	getSidebarState,
+	setSidebarState,
+	SidebarState,
+} from './utils/sidebar.server'
 import { getTheme, setTheme, Theme } from './utils/theme.server'
 import { getToast } from './utils/toast.server'
 
 import { IconName } from '@/icon-name'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import { Button } from '~/components/ui/button'
@@ -68,10 +74,15 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
 import { Toaster } from './components/ui/sonner'
 import { getUser, getUserId } from './utils/auth.server'
 import { sessionStorage } from './utils/session.server'
+import { getSetting, SettingKeys } from './utils/settings.server'
 import { useOptionalUser, userHasRole } from './utils/user'
 
 const ThemeFormSchema = z.object({
 	theme: z.enum(['light', 'dark']),
+})
+
+const SidebarFormSchema = z.object({
+	sidebarState: z.enum(['expanded', 'collapsed']),
 })
 
 export type MenuItem = {
@@ -97,6 +108,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	)
 	const userId = await getUserId(request)
 	const user = userId ? await getUser(userId) : null
+	const inactivityTimeoutMinutes = await getSetting<number>(
+		SettingKeys.AUTH_INACTIVITY_TIMEOUT_MINUTES,
+	)
+	const isMaintenanceMode = await getSetting<boolean>(
+		SettingKeys.MAINTENANCE_MODE_ENABLED,
+	)
+	const maintenanceMessage = isMaintenanceMode
+		? await getSetting<string>(SettingKeys.MAINTENANCE_MESSAGE)
+		: null
+	const isAdminUser =
+		user?.roles.some(r => r.name === 'admin' || r.name === 'tenant') ?? false
 
 	if (userId && !user) {
 		// Something weird happened
@@ -112,7 +134,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	const menuMap: Map<string, Menu> = new Map()
 	user?.roles
-		.filter(role => role.name !== 'user' && role.name !== 'focal')
+		.filter(role => role.name !== 'user')
 		.forEach(role => {
 			role.menus.forEach(menu => {
 				if (!menuMap.has(menu.id)) {
@@ -123,29 +145,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					})
 				}
 			})
-
-			if (userHasRole(user, 'admin')) {
-				menuMap.set('reports', {
-					name: 'Reports',
-					title: 'Reports',
-					items: [
-						{
-							id: 'charts',
-							name: 'charts',
-							title: 'Charts',
-							icon: 'line-chart',
-							link: '/admin/charts',
-						},
-						{
-							id: 'audit',
-							name: 'audit',
-							title: 'Audit',
-							icon: 'shield',
-							link: '/admin/audits',
-						},
-					],
-				})
-			}
 
 			role.menuItems.forEach(menuItem => {
 				const menu = menuMap.get(menuItem.menuId)
@@ -163,13 +162,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			})
 		})
 
-	menuMap.forEach(menu => {
-		menu.items.sort((a, b) => a.title.localeCompare(b.title))
-	})
-
 	return json(
 		{
 			theme: getTheme(request),
+			sidebarState: getSidebarState(request),
 			user,
 			toast,
 			ENV: getEnv(),
@@ -178,6 +174,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			menus: Array.from(menuMap.values()).sort((a, b) =>
 				a.title.localeCompare(b.title),
 			),
+			inactivityTimeoutMinutes,
+			isMaintenanceMode,
+			maintenanceMessage,
+			isAdminUser,
 		},
 		{
 			headers: combineHeaders(
@@ -190,11 +190,29 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
 	const formData = await request.formData()
-	invariantResponse(
-		formData.get('intent') === 'update-theme',
-		'Invalid intent',
-		{ status: 400 },
-	)
+	const intent = formData.get('intent')
+
+	if (intent === 'update-sidebar') {
+		const submission = parseWithZod(formData, {
+			schema: SidebarFormSchema,
+		})
+
+		if (submission.status !== 'success') {
+			return json(submission.reply(), {
+				status: submission.status === 'error' ? 400 : 200,
+			})
+		}
+
+		const { sidebarState } = submission.value
+
+		return json(submission.reply(), {
+			headers: { 'set-cookie': setSidebarState(sidebarState) },
+		})
+	}
+
+	invariantResponse(intent === 'update-theme', 'Invalid intent', {
+		status: 400,
+	})
 
 	const submission = parseWithZod(formData, {
 		schema: ThemeFormSchema,
@@ -217,128 +235,107 @@ export default function App() {
 	const data = useLoaderData<typeof loader>()
 	const theme = useTheme()
 	const user = useOptionalUser()
+	const location = useLocation()
 	useToast(data.toast)
 
+	const [sheetOpen, setSheetOpen] = useState(false)
+
+	useEffect(() => {
+		setSheetOpen(false)
+	}, [location.pathname])
+
+	const sidebarState = useSidebarState()
+	const sidebarCollapsed = sidebarState === 'collapsed'
+	const sidebarFetcher = useFetcher()
+	const setSidebarCollapsed = (collapsed: boolean) => {
+		sidebarFetcher.submit(
+			{
+				intent: 'update-sidebar',
+				sidebarState: collapsed ? 'collapsed' : 'expanded',
+			},
+			{ method: 'POST' },
+		)
+	}
+
+	const authRoutes = [
+		'/login',
+		'/logout',
+		'/signup',
+		'/verify',
+		'/reset-password',
+		'/forgot-password',
+	]
+	const isAuthRoute = authRoutes.some(route =>
+		location.pathname.startsWith(route),
+	)
+	const showMaintenanceBanner = data.isMaintenanceMode && user
+	const blockNonAdmin =
+		data.isMaintenanceMode && user && !data.isAdminUser && !isAuthRoute
+
 	return (
-		<Document env={data.ENV} theme={theme} isLoggedIn={Boolean(user)}>
+		<Document
+			env={data.ENV}
+			theme={theme}
+			isLoggedIn={Boolean(user)}
+			inactivityTimeoutMinutes={data.inactivityTimeoutMinutes}
+		>
 			<AuthenticityTokenProvider token={data.csrfToken}>
 				<HoneypotProvider {...data.honeypotProps}>
+					{showMaintenanceBanner && (
+						<div className="bg-yellow-400 px-4 py-2 text-center text-sm font-medium text-yellow-900">
+							{data.isAdminUser
+								? "You're in maintenance mode. The system is offline for other users."
+								: data.maintenanceMessage}
+						</div>
+					)}
 					<div
-						className={`grid min-h-screen w-full ${user ? 'md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]' : ''}`}
+						className={`grid min-h-dvh w-full transition-[grid-template-columns] duration-300 ${user && !blockNonAdmin ? (sidebarCollapsed ? 'md:grid-cols-[60px_1fr]' : 'md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]') : ''}`}
 					>
-						{user && (
+						{user && !blockNonAdmin && (
 							<div className="hidden bg-muted/40 md:block">
-								<div className="flex h-full max-h-screen flex-col gap-2">
+								<div className="flex h-full max-h-dvh flex-col gap-2">
 									<div className="flex h-12 items-center border-b bg-primary">
 										<Link
 											to="/"
 											className="flex items-center font-semibold text-primary-foreground"
+											title="Accreditation"
 										>
 											<img
 												src={logoAssetUrl}
 												alt="Logo"
 												className="h-16 w-16"
 											/>
-											<span className="text-sm">Accreditation</span>
+											{!sidebarCollapsed && (
+												<span className="text-sm">Accreditation</span>
+											)}
 										</Link>
 									</div>
 									<div className="flex-1 overflow-auto py-2">
-										<nav className="grid gap-4 px-2 text-sm font-medium">
-											{data.menus.map((group, index) => (
-												<Card key={index}>
-													<CardHeader className="p-2">
-														<CardTitle className="text-xs">
-															{group.title}
-														</CardTitle>
-													</CardHeader>
-													<CardContent className="p-2 pt-0">
+										<nav
+											className={`grid gap-4 ${sidebarCollapsed ? 'px-1' : 'px-2'} text-sm font-medium`}
+										>
+											{data.menus.map((group, index) =>
+												sidebarCollapsed ? (
+													<div
+														key={index}
+														className="flex flex-col items-center gap-1"
+													>
 														{group.items.map((item, itemIndex) => (
 															<NavLink
 																key={itemIndex}
 																to={`${item.link}`}
+																title={item.title}
 																className={({ isActive }) =>
 																	isActive
-																		? 'flex items-center gap-3 rounded-lg bg-muted px-3 py-2 text-primary transition-all hover:text-primary'
-																		: 'flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary'
+																		? 'flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-primary transition-all hover:text-primary'
+																		: 'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:text-primary'
 																}
 															>
 																<Icon name={item.icon} className="h-4 w-4" />
-																{item.title}
 															</NavLink>
 														))}
-													</CardContent>
-												</Card>
-											))}
-										</nav>
-									</div>
-									<div className="mt-auto p-4">
-										<Card className="w-full">
-											<CardHeader className="p-2">
-												<CardTitle className="text-xs">Actions</CardTitle>
-											</CardHeader>
-											<CardContent className="grid grid-cols-2 gap-2 p-2 text-xs">
-												<NavLink
-													to="/settings/profile"
-													className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-primary"
-												>
-													<Icon name="person" className="h-3 w-3" />
-													Profile
-												</NavLink>
-												<NavLink
-													to="#"
-													className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-primary"
-												>
-													<Icon name="shield" className="h-3 w-3" />
-													Support
-												</NavLink>
-												<NavLink
-													to="/faq"
-													className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-primary"
-												>
-													<Icon name="help-circle" className="h-3 w-3" />
-													FAQ
-												</NavLink>
-												<Form action="/logout" method="POST">
-													<AuthenticityTokenInput />
-													<button
-														type="submit"
-														className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-primary"
-													>
-														<Icon name="logout" className="h-3 w-3" />
-														Log Out
-													</button>
-												</Form>
-											</CardContent>
-										</Card>
-									</div>
-								</div>
-							</div>
-						)}
-						<div className="flex h-screen flex-col">
-							<header className="flex h-12 items-center gap-4 border-b bg-primary px-4">
-								{user ? (
-									<Sheet>
-										<SheetTrigger asChild>
-											<Button
-												variant="outline"
-												size="icon"
-												className="shrink-0 bg-primary-foreground text-primary md:hidden"
-											>
-												<Icon name="menu" className="h-4 w-4" />
-												<span className="sr-only">Toggle navigation menu</span>
-											</Button>
-										</SheetTrigger>
-										<SheetContent side="left" className="flex flex-col">
-											<nav className="grid gap-2 text-sm font-medium">
-												<Link
-													to="#"
-													className="flex items-center gap-2 text-sm font-semibold"
-												>
-													<Icon name="package2" className="h-5 w-5" />
-													<span className="">Accreditation</span>
-												</Link>
-
-												{data.menus.map((group, index) => (
+													</div>
+												) : (
 													<Card key={index}>
 														<CardHeader className="p-2">
 															<CardTitle className="text-xs">
@@ -362,51 +359,191 @@ export default function App() {
 															))}
 														</CardContent>
 													</Card>
-												))}
-											</nav>
-
-											<div className="mt-auto">
-												<Card className="w-full">
-													<CardHeader className="p-2">
-														<CardTitle className="text-xs">Actions</CardTitle>
-													</CardHeader>
-													<CardContent className="grid grid-cols-2 gap-2 p-2 text-xs">
-														<NavLink
-															to="/settings/profile"
-															className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-foreground"
+												),
+											)}
+										</nav>
+									</div>
+									<div className="mt-auto p-2">
+										{!sidebarCollapsed ? (
+											<Card className="w-full">
+												<CardHeader className="p-2">
+													<CardTitle className="text-xs">Actions</CardTitle>
+												</CardHeader>
+												<CardContent className="grid grid-cols-2 gap-2 p-2 text-xs">
+													<NavLink
+														to="/settings/profile"
+														className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-primary"
+													>
+														<Icon name="person" className="h-3 w-3" />
+														Profile
+													</NavLink>
+													<button
+														onClick={() => setSidebarCollapsed(true)}
+														className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-primary"
+														title="Collapse sidebar"
+													>
+														<PanelLeftClose className="h-3 w-3" />
+														Collapse
+													</button>
+													<NavLink
+														to="/faq"
+														className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-primary"
+													>
+														<Icon name="help-circle" className="h-3 w-3" />
+														FAQ
+													</NavLink>
+													<Form action="/logout" method="POST">
+														<AuthenticityTokenInput />
+														<button
+															type="submit"
+															className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-primary"
 														>
-															<Icon name="settings" className="h-3 w-3" />
-															Profile
-														</NavLink>
-														<NavLink
-															to="#"
-															className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-foreground"
-														>
-															<Icon name="shield" className="h-3 w-3" />
-															Support
-														</NavLink>
-														<NavLink
-															to="/faq"
-															className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-foreground"
-														>
-															<Icon name="help-circle" className="h-3 w-3" />
-															FAQ
-														</NavLink>
-														<Form action="/logout" method="POST">
-															<AuthenticityTokenInput />
-															<button
-																type="submit"
-																className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-foreground"
-															>
-																<Icon name="logout" className="h-3 w-3" />
-																Log Out
-															</button>
-														</Form>
-													</CardContent>
-												</Card>
+															<Icon name="logout" className="h-3 w-3" />
+															Log Out
+														</button>
+													</Form>
+												</CardContent>
+											</Card>
+										) : (
+											<div className="flex flex-col items-center gap-1">
+												<NavLink
+													to="/settings/profile"
+													title="Profile"
+													className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:text-primary"
+												>
+													<Icon name="person" className="h-4 w-4" />
+												</NavLink>
+												<Form action="/logout" method="POST">
+													<AuthenticityTokenInput />
+													<button
+														type="submit"
+														title="Log Out"
+														className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:text-primary"
+													>
+														<Icon name="logout" className="h-4 w-4" />
+													</button>
+												</Form>
+												<button
+													onClick={() => setSidebarCollapsed(false)}
+													title="Expand sidebar"
+													className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:text-primary"
+												>
+													<PanelLeftOpen className="h-4 w-4" />
+												</button>
 											</div>
-										</SheetContent>
-									</Sheet>
+										)}
+									</div>
+								</div>
+							</div>
+						)}
+						<div className="flex h-dvh flex-col">
+							<header className="flex h-12 items-center gap-4 border-b bg-primary px-4">
+								{user ? (
+									blockNonAdmin ? (
+										<Link
+											to="/"
+											className="flex items-center gap-2 font-semibold text-primary-foreground"
+										>
+											<img src={logoAssetUrl} alt="Logo" className="h-16 w-16" />
+											<span className="text-sm">Accreditation</span>
+										</Link>
+									) : (
+										<Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+											<SheetTrigger asChild>
+												<Button
+													variant="outline"
+													size="icon"
+													className="shrink-0 bg-primary-foreground text-primary md:hidden"
+												>
+													<Icon name="menu" className="h-4 w-4" />
+													<span className="sr-only">
+														Toggle navigation menu
+													</span>
+												</Button>
+											</SheetTrigger>
+											<SheetContent side="left" className="flex flex-col">
+												<nav className="grid gap-2 text-sm font-medium">
+													<Link
+														to="/"
+														className="flex items-center gap-2 text-sm font-semibold"
+													>
+														<Icon name="package2" className="h-5 w-5" />
+														<span className="">Accreditation</span>
+													</Link>
+
+													{data.menus.map((group, index) => (
+														<Card key={index}>
+															<CardHeader className="p-2">
+																<CardTitle className="text-xs">
+																	{group.title}
+																</CardTitle>
+															</CardHeader>
+															<CardContent className="p-2 pt-0">
+																{group.items.map((item, itemIndex) => (
+																	<NavLink
+																		key={itemIndex}
+																		to={`${item.link}`}
+																		className={({ isActive }) =>
+																			isActive
+																				? 'flex items-center gap-3 rounded-lg bg-muted px-3 py-2 text-primary transition-all hover:text-primary'
+																				: 'flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary'
+																		}
+																	>
+																		<Icon
+																			name={item.icon}
+																			className="h-4 w-4"
+																		/>
+																		{item.title}
+																	</NavLink>
+																))}
+															</CardContent>
+														</Card>
+													))}
+												</nav>
+
+												<div className="mt-auto">
+													<Card className="w-full">
+														<CardHeader className="p-2">
+															<CardTitle className="text-xs">Actions</CardTitle>
+														</CardHeader>
+														<CardContent className="grid grid-cols-2 gap-2 p-2 text-xs">
+															<NavLink
+																to="/settings/profile"
+																className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-foreground"
+															>
+																<Icon name="settings" className="h-3 w-3" />
+																Profile
+															</NavLink>
+															<NavLink
+																to="#"
+																className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-foreground"
+															>
+																<Icon name="shield" className="h-3 w-3" />
+																Support
+															</NavLink>
+															<NavLink
+																to="/faq"
+																className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-foreground"
+															>
+																<Icon name="help-circle" className="h-3 w-3" />
+																FAQ
+															</NavLink>
+															<Form action="/logout" method="POST">
+																<AuthenticityTokenInput />
+																<button
+																	type="submit"
+																	className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground transition-all hover:text-foreground"
+																>
+																	<Icon name="logout" className="h-3 w-3" />
+																	Log Out
+																</button>
+															</Form>
+														</CardContent>
+													</Card>
+												</div>
+											</SheetContent>
+										</Sheet>
+									)
 								) : (
 									<Link
 										to="/"
@@ -475,8 +612,8 @@ export default function App() {
 									</NavLink>
 								)}
 							</header>
-							<main className="flex-1 overflow-auto border-l p-4">
-								<Outlet />
+							<main className="flex-1 overflow-auto border-l p-2 sm:p-4">
+								{blockNonAdmin ? null : <Outlet />}
 								<Toaster position="bottom-right" theme={theme} />
 							</main>
 						</div>
@@ -492,11 +629,13 @@ function Document({
 	theme,
 	env = {},
 	isLoggedIn,
+	inactivityTimeoutMinutes = 60,
 }: {
 	children: React.ReactNode
 	theme?: Theme
 	env?: Record<string, string>
 	isLoggedIn?: boolean
+	inactivityTimeoutMinutes?: number
 }) {
 	return (
 		<html lang="en" className={theme}>
@@ -513,7 +652,9 @@ function Document({
 						__html: `window.ENV = ${JSON.stringify(env)}`,
 					}}
 				/>
-				{isLoggedIn && <LogoutTimer />}
+				{isLoggedIn && (
+					<LogoutTimer inactivityTimeoutMinutes={inactivityTimeoutMinutes} />
+				)}
 				<ScrollRestoration
 					getKey={location => {
 						return location.pathname
@@ -537,6 +678,22 @@ function useTheme() {
 	}
 
 	return data.theme
+}
+
+function useSidebarState(): SidebarState {
+	const data = useLoaderData<typeof loader>()
+	const fetchers = useFetchers()
+	const fetcher = fetchers.find(
+		fetcher => fetcher.formData?.get('intent') === 'update-sidebar',
+	)
+	const optimisticState = fetcher?.formData?.get('sidebarState') as
+		| SidebarState
+		| undefined
+	if (optimisticState === 'expanded' || optimisticState === 'collapsed') {
+		return optimisticState
+	}
+
+	return data.sidebarState
 }
 
 function ThemeSwitch({ userPreference }: { userPreference?: Theme }) {
@@ -583,18 +740,19 @@ function ThemeSwitch({ userPreference }: { userPreference?: Theme }) {
 	)
 }
 
-function LogoutTimer() {
+function LogoutTimer({
+	inactivityTimeoutMinutes,
+}: {
+	inactivityTimeoutMinutes: number
+}) {
 	const [status, setStatus] = useState<'idle' | 'show-modal'>('idle')
 	const location = useLocation()
 	const submit = useSubmit()
-	// 🦉 normally you'd want these numbers to be much higher, but for the purpose
-	// of this exercise, we'll make it short:
-	// const logoutTime = 5000
-	// const modalTime = 2000
 
-	// 🦉 here's what would be more likely:
-	const logoutTime = 1000 * 60 * 60 // 1 hour
-	const modalTime = logoutTime - 1000 * 60 * 2 // 58 minutes
+	// Convert minutes to milliseconds
+	const logoutTime = 1000 * 60 * inactivityTimeoutMinutes
+	// Show modal 2 minutes before logout (or immediately if timeout is less than 2 minutes)
+	const modalTime = Math.max(0, logoutTime - 1000 * 60 * 2)
 	const modalTimer = useRef<ReturnType<typeof setTimeout>>()
 	const logoutTimer = useRef<ReturnType<typeof setTimeout>>()
 	const [timeLeft, setTimeLeft] = useState<number>(0) // New state for time left

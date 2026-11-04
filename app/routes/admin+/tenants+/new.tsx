@@ -4,6 +4,7 @@ import { TenantEditor } from './__tenant-editor'
 export { action } from './__tenant-editor.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
+	// Only global admins can create new tenants
 	await requireUserWithRoles(request, ['admin'])
 
 	return json({})

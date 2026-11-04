@@ -1,35 +1,5 @@
 import { EmailClient, KnownEmailSendStatus } from '@azure/communication-email'
-import { getErrorMessage } from './misc'
-
-export async function sendEmail(options: {
-	to: string
-	subject: string
-	text: string
-	html?: string
-}) {
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	const email = {
-		from: 'noreply@accreditation.com',
-		...options,
-	}
-
-	const response = await fetch('https://api.resend.com/emails', {
-		method: 'POST',
-		body: JSON.stringify(email),
-		headers: {
-			Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-			'content-type': 'application/json',
-		},
-	})
-
-	const data = await response.json()
-
-	if (response.ok) {
-		return { status: 'success' } as const
-	} else {
-		return { status: 'error', error: getErrorMessage(data) } as const
-	}
-}
+import { getSetting, SettingKeys } from './settings.server'
 
 export async function sendEmailAzure(options: {
 	to: string
@@ -38,9 +8,16 @@ export async function sendEmailAzure(options: {
 	html?: string
 }) {
 	const { to, subject, plainText, html } = options
+
+	// Get email settings
+	const [senderAddress, sendTimeoutSeconds] = await Promise.all([
+		getSetting<string>(SettingKeys.EMAIL_SENDER_ADDRESS),
+		getSetting<number>(SettingKeys.EMAIL_SEND_TIMEOUT_SECONDS),
+	])
+
 	const POLLER_WAIT_TIME = 10
 	const message = {
-		senderAddress: 'DoNotReply@accreditation.africanunion.org',
+		senderAddress,
 		recipients: {
 			to: [{ address: to }],
 		},
@@ -64,9 +41,9 @@ export async function sendEmailAzure(options: {
 			poller.poll()
 
 			await new Promise(resolve => setTimeout(resolve, POLLER_WAIT_TIME * 1000))
-			timeElapsed += 10
+			timeElapsed += POLLER_WAIT_TIME
 
-			if (timeElapsed > 18 * POLLER_WAIT_TIME) {
+			if (timeElapsed > sendTimeoutSeconds) {
 				throw 'Polling timed out.'
 			}
 		}

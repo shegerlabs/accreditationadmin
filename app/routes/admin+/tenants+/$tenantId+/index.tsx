@@ -1,14 +1,25 @@
 import { json, LoaderFunctionArgs } from '@remix-run/node'
 import { Link, useLoaderData } from '@remix-run/react'
-import { ArrowRight, Calendar, FileText, MapPin } from 'lucide-react'
+import {
+	ArrowRight,
+	Calendar,
+	CreditCard,
+	FileText,
+	GitBranch,
+	MapPin,
+} from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
-
+	const currentUser = await requireAdminAccess(request)
 	const { tenantId } = params
+
+	// Tenant admins can only access their own tenant
+	if (!currentUser.isGlobalAdmin && tenantId !== currentUser.tenantId) {
+		throw json({ message: 'Access denied' }, { status: 403 })
+	}
 
 	const tenant = await prisma.tenant.findUnique({
 		where: { id: tenantId },
@@ -18,6 +29,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			participantTypes: true,
 			meetingTypes: true,
 			venues: true,
+			workflowTemplates: true,
+			badgeTemplates: true,
 		},
 	})
 
@@ -49,6 +62,18 @@ export default function TenantDetailsRoute() {
 			count: tenant.venues.length,
 			icon: MapPin,
 			path: 'venues',
+		},
+		{
+			title: 'Workflows',
+			count: tenant.workflowTemplates.length,
+			icon: GitBranch,
+			path: 'workflow-templates',
+		},
+		{
+			title: 'Badges',
+			count: tenant.badgeTemplates.length,
+			icon: CreditCard,
+			path: 'badge-templates',
 		},
 	]
 

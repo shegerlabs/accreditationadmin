@@ -7,7 +7,7 @@ export const InputField = ({
 	type,
 	...props
 }: {
-	meta: FieldMetadata<string>
+	meta: FieldMetadata<string | number | null | undefined>
 	type: Parameters<typeof getInputProps>[1]['type']
 } & ComponentProps<typeof Input>) => {
 	const { key, ...restProps } = props

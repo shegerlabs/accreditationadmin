@@ -7,6 +7,10 @@ const schema = z.object({
 	HONEYPOT_SECRET: z.string(),
 	AZURE_STORAGE_CONNECTION_STRING: z.string(),
 	EMAIL_CONNECTION_STRING: z.string(),
+	QUERY_LOG_ENABLED: z.enum(['true', 'false']).optional(),
+	QUERY_LOG_THRESHOLD: z.string().optional(),
+	IMPERSONATION_SECRET: z.string(),
+	USER_PORTAL_URL: z.string(),
 })
 
 declare global {

@@ -1,13 +1,15 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { Outlet, useLoaderData } from '@remix-run/react'
 import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const user = await requireAdminAccess(request)
 
+	// Global admins see all tenants, tenant admins see only their own
 	const tenants = await prisma.tenant.findMany({
+		where: user.isGlobalAdmin ? {} : { id: user.tenantId! },
 		select: {
 			id: true,
 			name: true,

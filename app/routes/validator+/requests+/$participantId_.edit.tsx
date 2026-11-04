@@ -3,21 +3,26 @@ import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
 import { useLoaderData } from '@remix-run/react'
 import { parseWithZod } from 'node_modules/@conform-to/zod/parse'
 import { auditRequest } from '~/utils/audit.server'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import {
+	getUserAccessibleStepIds,
+	requireUserWithRoles,
+} from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
+import { getQuotaUsage, validateQuotaForTypeChange } from '~/utils/quota.server'
 import { redirectWithToast } from '~/utils/toast.server'
+import { reassignParticipantStep } from '~/utils/workflow.server'
 import { WishlistEditor, WishlistEditorSchema } from './__wishlist-editor'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'first-validator',
-		'second-validator',
-		'printer',
+		'validator',
+		'reviewer',
 	])
 
+	// Get user's roles for backward compatibility
 	const userRoles = await prisma.user.findUniqueOrThrow({
 		where: { id: user.id },
 		include: {
@@ -25,22 +30,34 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		},
 	})
 
+	// Try step-based filtering first (new multi-tenancy approach)
+	const accessibleStepIds = await getUserAccessibleStepIds(user.id, ['validator', 'reviewer'])
+
+	// Build where clause: use step-based if available, otherwise fall back to role-based
+	const stepFilter =
+		accessibleStepIds.length > 0
+			? { stepId: { in: accessibleStepIds } }
+			: { step: { roleId: { in: userRoles.roles.map(role => role.id) } } }
+
 	const { participantId } = params
 
 	const participant = await prisma.participant.findUnique({
 		where: {
 			id: participantId,
-			step: { roleId: { in: userRoles.roles.map(role => role.id) } },
+			...stepFilter,
 		},
 		select: {
 			id: true,
 			participantTypeId: true,
 			wishList: true,
 			attendClosedSession: true,
+			invitationId: true,
 		},
 	})
 
-	invariantResponse(participant, 'Not Found', { status: 404 })
+	invariantResponse(participant, 'Access denied', { status: 403 })
+
+	const quotaUsage = await getQuotaUsage(participant.id, participant.invitationId)
 
 	const participantTypes = await prisma.participantType.findMany({
 		select: { id: true, name: true },
@@ -54,14 +71,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			attendClosedSession: participant.attendClosedSession,
 		},
 		participantTypes,
+		quotaUsage,
 	})
 }
 
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await requireUserWithRoles(request, [
-		'first-validator',
-		'second-validator',
-		'printer',
+		'validator',
+		'reviewer',
 	])
 	const formData = await request.formData()
 	checkHoneypot(formData)
@@ -79,6 +96,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		)
 	}
 
+	// Get user's roles for backward compatibility
 	const userRoles = await prisma.user.findUniqueOrThrow({
 		where: { id: user.id },
 		include: {
@@ -86,19 +104,83 @@ export async function action({ request }: ActionFunctionArgs) {
 		},
 	})
 
+	// Try step-based filtering first (new multi-tenancy approach)
+	const accessibleStepIds = await getUserAccessibleStepIds(user.id, ['validator', 'reviewer'])
+
+	// Build where clause: use step-based if available, otherwise fall back to role-based
+	const stepFilter =
+		accessibleStepIds.length > 0
+			? { stepId: { in: accessibleStepIds } }
+			: { step: { roleId: { in: userRoles.roles.map(role => role.id) } } }
+
 	const { id: participantId } = submission.value
+
+	// Verify access before update
+	const participant = await prisma.participant.findFirst({
+		where: {
+			id: participantId,
+			...stepFilter,
+		},
+		select: {
+			id: true,
+			eventId: true,
+			tenantId: true,
+			participantTypeId: true,
+			invitationId: true,
+			step: { select: { name: true, workflowId: true } },
+		},
+	})
+
+	invariantResponse(participant, 'Access denied', { status: 403 })
+
+	// Reassign step if participant type changed
+	const newParticipantTypeId = submission.value.participantTypeId
+	let newStepId: string | null = null
+	if (participant.step) {
+		try {
+			newStepId = await reassignParticipantStep(participant as Parameters<typeof reassignParticipantStep>[0], newParticipantTypeId)
+		} catch (error) {
+			return json(
+				{
+					result: submission.reply({
+						formErrors: [error instanceof Error ? error.message : 'Failed to reassign workflow step'],
+					}),
+				},
+				{ status: 400 },
+			)
+		}
+	}
+
+	const newAttendClosedSession = submission.value.attendClosedSession === 'true'
+
+	// Check quota before proceeding
+	const quotaCheck = await validateQuotaForTypeChange({
+		participantId: participant.id,
+		invitationId: participant.invitationId,
+		newParticipantTypeId,
+		newAttendClosedSession,
+	})
+
+	if (!quotaCheck.allowed) {
+		return json(
+			{
+				result: submission.reply({
+					formErrors: [quotaCheck.reason ?? 'Quota exceeded for the selected participant type.'],
+				}),
+			},
+			{ status: 400 },
+		)
+	}
 
 	const wishlist = {
 		wishList: submission.value.meetings?.join(','),
-		attendClosedSession: submission.value.attendClosedSession === 'true',
-		participantTypeId: submission.value.participantTypeId,
+		attendClosedSession: newAttendClosedSession,
+		participantTypeId: newParticipantTypeId,
+		...(newStepId ? { stepId: newStepId } : {}),
 	}
 
 	await prisma.participant.update({
-		where: {
-			id: participantId,
-			step: { roleId: { in: userRoles.roles.map(role => role.id) } },
-		},
+		where: { id: participantId },
 		data: wishlist,
 	})
 
@@ -111,7 +193,11 @@ export async function action({ request }: ActionFunctionArgs) {
 		userId: user.id,
 	})
 
-	return redirectWithToast(`/validator/requests/${participantId}`, {
+	const url = new URL(request.url)
+	const searchParams = url.searchParams
+	const redirectUrl = `/validator/requests/${participantId}${searchParams.size ? '?' + searchParams.toString() : ''}`
+
+	return redirectWithToast(redirectUrl, {
 		type: 'success',
 		title: `Participant Wishlist Updated`,
 		description: `Participant wishlist updated successfully.`,
@@ -119,7 +205,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function WishlistEditorRoute() {
-	const { participant, participantTypes } = useLoaderData<typeof loader>()
+	const { participant, participantTypes, quotaUsage } = useLoaderData<typeof loader>()
 	return (
 		<WishlistEditor
 			participant={{
@@ -129,6 +215,7 @@ export default function WishlistEditorRoute() {
 				attendClosedSession: participant.attendClosedSession,
 			}}
 			participantTypes={participantTypes}
+			quotaUsage={quotaUsage}
 		/>
 	)
 }

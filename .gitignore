@@ -3,9 +3,9 @@ node_modules
 
 /.cache
 /build
+/downloads
 .env
 /prisma/seed.ts
-/.cursor
 
 /prisma/data.db
 
@@ -13,3 +13,10 @@ node_modules
 
 # generated files
 # /app/components/ui/icons
+
+# user management script data files
+scripts/users.json
+scripts/passwords.json
+
+# downloaded photos
+downloads/

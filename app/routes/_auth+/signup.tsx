@@ -75,7 +75,6 @@ export async function action({ request }: ActionFunctionArgs) {
 	const { email, redirectTo: postVerificationRedirectTo } = submission.value
 
 	const { verifyUrl, redirectTo, otp } = await prepareVerification({
-		period: 10 * 60,
 		request,
 		type: 'onboarding',
 		target: email,

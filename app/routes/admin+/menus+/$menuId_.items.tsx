@@ -2,7 +2,6 @@ import { parseWithZod } from '@conform-to/zod'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
 import { useLoaderData } from '@remix-run/react'
 import { EditIcon, TrashIcon, UserIcon } from 'lucide-react'
-import { useMediaQuery } from 'react-responsive'
 import { z } from 'zod'
 import { ActionForm } from '~/components/action-form'
 import { DataList } from '~/components/data-list'
@@ -90,21 +89,20 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function IndexRoute() {
 	const { menu } = useLoaderData<typeof loader>()
-	const isMobile = useMediaQuery({ maxWidth: 767 })
 
-	const deleteAction = (item: any) => (
-		<ActionForm
-			method="POST"
-			data={{
-				menuId: menu.id,
-				menuItemId: item.id,
-			}}
-			buttonContent={<TrashIcon className="h-4 w-4" />}
-			buttonVariant="destructive"
-			buttonSize="sm"
-			intent="delete"
-		/>
-	)
+	// const deleteAction = (item: any) => (
+	// 	<ActionForm
+	// 		method="POST"
+	// 		data={{
+	// 			menuId: menu.id,
+	// 			menuItemId: item.id,
+	// 		}}
+	// 		buttonContent={<TrashIcon className="h-4 w-4" />}
+	// 		buttonVariant="destructive"
+	// 		buttonSize="sm"
+	// 		intent="delete"
+	// 	/>
+	// )
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -118,7 +116,14 @@ export default function IndexRoute() {
 						action={`/admin/menus/${menu.id}/items`}
 						autoSubmit={false}
 						filters={[]}
-						showAddButton={false}
+						showAddButton={true}
+						extras={[
+							{
+								label: 'Back',
+								to: `/admin/menus`,
+								icon: 'chevron-left',
+							},
+						]}
 					/>
 				</div>
 				<DataList
@@ -150,11 +155,13 @@ export default function IndexRoute() {
 							label: 'Delete',
 							icon: <TrashIcon className="h-4 w-4" />,
 							variant: 'outline' as const,
-							render: (permission: any) => deleteAction(permission),
+							href: (item: any) =>
+								`/admin/menus/${menu.id}/items/${item.id}/delete`,
+							// render: (permission: any) => deleteAction(permission),
 						},
 					]}
 					status="idle"
-					isMobile={isMobile}
+					
 					keyExtractor={item => item.id}
 					actionWidth="96"
 				/>

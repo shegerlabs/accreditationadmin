@@ -7,7 +7,7 @@ import { MeetingTypeEditor } from './__meeting-type-editor'
 export { action } from './__meeting-type-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId, meetingTypeId } = params
 

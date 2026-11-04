@@ -1,15 +1,14 @@
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
-import { useLoaderData } from '@remix-run/react'
-import { EditIcon, LockOpenIcon, TrashIcon, UserIcon } from 'lucide-react'
+import { Link, useLoaderData } from '@remix-run/react'
+import { EyeIcon, LockOpenIcon, UserIcon } from 'lucide-react'
 import { parseWithZod } from 'node_modules/@conform-to/zod/parse'
-import { useMediaQuery } from 'react-responsive'
 import { z } from 'zod'
 import { ActionForm } from '~/components/action-form'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
-import { requireUserWithRoles } from '~/utils/auth.server'
-import { AUTH_SETTINGS } from '~/utils/constants'
+import { requireAdminAccess } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
+import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
@@ -19,30 +18,102 @@ export const UnlockUserSchema = z.object({
 })
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const user = await requireAdminAccess(request)
 
-	const { data, totalPages, currentPage } = await filterAndPaginate({
-		request,
-		model: prisma.user,
-		searchFields: ['name', 'email', 'username'],
-		filterFields: ['status'],
-		orderBy: [{ status: 'desc' }, { createdAt: 'desc' }],
-		select: {
-			id: true,
-			name: true,
-			email: true,
-			username: true,
-			status: true,
-			lockCount: true,
-		},
-	})
+	// System seed users that should be hidden from tenant admins
+	const SYSTEM_SEED_USERS = [
+		'focal',
+		'firstvalidator',
+		'secondvalidator',
+		'badgeprinter',
+		'dispatcher',
+		'tenantadmin',
+	]
 
-	const tenants = await prisma.tenant.findMany({
-		select: {
-			id: true,
-			name: true,
-		},
-	})
+	// Parse tenant assignment filter from URL
+	const url = new URL(request.url)
+	const tenantAssignment = url.searchParams.get('tenantAssignment') ?? 'all'
+
+	// Build the where filter based on user type and tenant assignment filter
+	let whereFilter: any = {}
+
+	if (user.isGlobalAdmin) {
+		// Global admins see all users, with optional tenant assignment filter
+		if (tenantAssignment === 'unassigned') {
+			whereFilter = { tenantId: null }
+		} else if (tenantAssignment === 'assigned') {
+			whereFilter = { tenantId: { not: null } }
+		}
+		// 'all' = no filter
+	} else {
+		// Tenant admins see their tenant's users + orphan users
+		// But never see system seed users or global admins
+		const baseExclusions = {
+			username: { notIn: SYSTEM_SEED_USERS },
+			NOT: {
+				roles: {
+					some: {
+						name: 'admin',
+					},
+				},
+			},
+		}
+
+		if (tenantAssignment === 'mytenant') {
+			whereFilter = {
+				tenantId: user.tenantId,
+				...baseExclusions,
+			}
+		} else if (tenantAssignment === 'unassigned') {
+			whereFilter = {
+				tenantId: null,
+				...baseExclusions,
+			}
+		} else {
+			// 'all' - show both tenant users and orphans
+			whereFilter = {
+				OR: [{ tenantId: user.tenantId }, { tenantId: null }],
+				...baseExclusions,
+			}
+		}
+	}
+
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.user,
+			where: whereFilter,
+			searchFields: ['name', 'email', 'username'],
+			filterFields: ['status'],
+			orderBy: [{ status: 'desc' }, { createdAt: 'desc' }],
+			select: {
+				id: true,
+				name: true,
+				email: true,
+				username: true,
+				status: true,
+				lockCount: true,
+				tenantId: true,
+				tenant: {
+					select: {
+						name: true,
+					},
+				},
+			},
+		})
+
+	// Global admins see tenant filter dropdown, tenant admins don't need it
+	const tenants = user.isGlobalAdmin
+		? await prisma.tenant.findMany({
+				select: {
+					id: true,
+					name: true,
+				},
+			})
+		: []
+
+	// Get max lock count setting
+	const maxLockCount = await getSetting<number>(SettingKeys.AUTH_MAX_LOCK_COUNT)
 
 	return json({
 		status: 'idle',
@@ -50,11 +121,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		users: data,
 		totalPages,
 		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		isGlobalAdmin: user.isGlobalAdmin,
+		maxLockCount,
 	} as const)
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const user = await requireAdminAccess(request)
 	const formData = await request.formData()
 	await validateCSRF(formData, request.headers)
 
@@ -74,18 +149,29 @@ export async function action({ request }: ActionFunctionArgs) {
 	const { userId } = submission.value
 
 	if (intent === 'unlock') {
-		const user = await prisma.user.findUnique({
-			where: { id: userId },
+		// Validate tenant access for the target user
+		// Tenant admins can unlock their own tenant's users or orphan users
+		const targetUser = await prisma.user.findFirst({
+			where: user.isGlobalAdmin
+				? { id: userId }
+				: {
+						id: userId,
+						OR: [{ tenantId: user.tenantId }, { tenantId: null }],
+					},
 			select: {
 				id: true,
 				status: true,
 				lockCount: true,
 			},
 		})
-		invariantResponse(user, 'User not found', { status: 404 })
+		invariantResponse(targetUser, 'User not found', { status: 404 })
 
+		// Get max lock count setting
+		const maxLockCount = await getSetting<number>(
+			SettingKeys.AUTH_MAX_LOCK_COUNT,
+		)
 		const isPermanentlyLocked =
-			user.status === 'LOCKED' && user.lockCount >= AUTH_SETTINGS.MAX_LOCK_COUNT
+			targetUser.status === 'LOCKED' && targetUser.lockCount >= maxLockCount
 
 		await prisma.user.update({
 			where: { id: userId },
@@ -107,10 +193,16 @@ export async function action({ request }: ActionFunctionArgs) {
 	})
 }
 
-export default function UsersListPage() {
+export default function UsersRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage } = data
-	const isMobile = useMediaQuery({ maxWidth: 767 })
+	const {
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		isGlobalAdmin,
+		maxLockCount,
+	} = data
 
 	const unlockAction = (user: any) => (
 		<ActionForm
@@ -127,7 +219,7 @@ export default function UsersListPage() {
 
 	const getStatusBadge = (user: any) => {
 		const isPermanentlyLocked =
-			user.status === 'LOCKED' && user.lockCount >= AUTH_SETTINGS.MAX_LOCK_COUNT
+			user.status === 'LOCKED' && user.lockCount >= maxLockCount
 
 		if (isPermanentlyLocked) {
 			return (
@@ -162,19 +254,24 @@ export default function UsersListPage() {
 					<SearchBar
 						status={data.status}
 						action="/admin/users"
-						autoSubmit={false}
+						autoSubmit={true}
 						filters={[
+							// Tenant assignment filter
 							{
-								name: 'tenantId',
+								name: 'tenantAssignment',
 								label: 'Tenant',
-								type: 'select',
-								options: [
-									{ value: 'all', label: 'All' },
-									...data.tenants.map(tenant => ({
-										value: tenant.id,
-										label: tenant.name,
-									})),
-								],
+								type: 'select' as const,
+								options: isGlobalAdmin
+									? [
+											{ value: 'all', label: 'All Users' },
+											{ value: 'assigned', label: 'Assigned to Tenant' },
+											{ value: 'unassigned', label: 'Unassigned' },
+										]
+									: [
+											{ value: 'all', label: 'All Users' },
+											{ value: 'mytenant', label: 'My Tenant' },
+											{ value: 'unassigned', label: 'Unassigned' },
+										],
 							},
 							{
 								name: 'status',
@@ -200,20 +297,33 @@ export default function UsersListPage() {
 				</div>
 				<DataList
 					data={data.users}
-					actionWidth="96"
 					columns={[
 						{
 							key: 'name',
-							header: 'Name',
+							header: 'Username',
 							render: (user: any) => (
-								<div className="flex items-center space-x-2">
+								<Link
+									to={`/admin/users/${user.id}`}
+									className="flex items-center space-x-2"
+								>
 									<UserIcon className="h-4 w-4 text-primary" />
-									<span>{user.name}</span>
-								</div>
+									<span>{user.username}</span>
+								</Link>
 							),
 						},
 						{ key: 'email', header: 'Email' },
-						{ key: 'username', header: 'Username' },
+						{
+							key: 'tenant',
+							header: 'Tenant',
+							render: (user: any) =>
+								user.tenant ? (
+									<span>{user.tenant.name}</span>
+								) : (
+									<span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+										Unassigned
+									</span>
+								),
+						},
 						{
 							key: 'status',
 							header: 'Status',
@@ -222,15 +332,9 @@ export default function UsersListPage() {
 					]}
 					actions={[
 						{
-							label: 'Edit',
-							icon: <EditIcon className="h-4 w-4" />,
-							href: (user: any) => `${user.id}/edit`,
-							variant: 'outline' as const,
-						},
-						{
-							label: 'Delete',
-							icon: <TrashIcon className="h-4 w-4" />,
-							href: (user: any) => `${user.id}/delete`,
+							label: 'View',
+							icon: <EyeIcon className="h-4 w-4" />,
+							href: (user: any) => `${user.id}`,
 							variant: 'outline' as const,
 						},
 						{
@@ -242,10 +346,12 @@ export default function UsersListPage() {
 						},
 					]}
 					status={data.status}
-					isMobile={isMobile}
+					
 					keyExtractor={user => user.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
+					defaultPageSize={defaultPageSize}
+					pageSizeOptions={pageSizeOptions}
 				/>
 			</div>
 		</div>

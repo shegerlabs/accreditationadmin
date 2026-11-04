@@ -16,6 +16,8 @@ interface DocumentPreviewProps {
 	contentType: string
 	onDownload: () => void
 	type: string
+	icon?: React.ElementType
+	color?: string
 }
 
 export function DocumentPreview({
@@ -24,6 +26,8 @@ export function DocumentPreview({
 	contentType,
 	onDownload,
 	type,
+	icon: Icon = FileIcon,
+	color = 'bg-slate-500',
 }: DocumentPreviewProps) {
 	const [isOpen, setIsOpen] = React.useState(false)
 	const [key, setKey] = React.useState(0)
@@ -38,37 +42,27 @@ export function DocumentPreview({
 	}
 
 	return (
-		<div className="group relative flex items-center justify-between rounded-lg border-2 border-green-100 bg-green-50/50 p-4 shadow-sm transition-all hover:border-green-200 hover:bg-green-50">
-			<div className="flex items-center gap-3">
-				<div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 text-green-600">
-					<FileIcon className="h-5 w-5" />
+		<>
+			<button
+				type="button"
+				onClick={() => setIsOpen(true)}
+				className="flex w-full items-center gap-3 rounded-lg border bg-white px-3 py-2 shadow-sm transition-colors hover:bg-slate-50"
+			>
+				<div
+					className={cn(
+						'flex h-8 w-8 items-center justify-center rounded-lg',
+						color,
+					)}
+				>
+					<Icon className="h-4 w-4 text-white" />
 				</div>
-				<div>
-					<h3 className="font-medium text-green-900">
+				<div className="text-left">
+					<p className="text-sm font-medium text-slate-700">
 						{type.charAt(0).toUpperCase() + type.slice(1).toLowerCase()}
-					</h3>
+					</p>
+					<p className="text-xs text-slate-500">Click to preview</p>
 				</div>
-			</div>
-			<div className="flex items-center gap-2">
-				<Button
-					variant="ghost"
-					size="sm"
-					className="flex items-center gap-2 text-green-600 hover:bg-green-100 hover:text-green-700"
-					onClick={() => setIsOpen(true)}
-					type="button"
-				>
-					<Eye className="h-4 w-4" />
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					className="flex items-center gap-2 text-green-600 hover:bg-green-100 hover:text-green-700"
-					onClick={onDownload}
-					type="button"
-				>
-					<Download className="h-4 w-4" />
-				</Button>
-			</div>
+			</button>
 
 			<Dialog open={isOpen} onOpenChange={setIsOpen}>
 				<DialogContent
@@ -82,15 +76,26 @@ export function DocumentPreview({
 							<DialogDescription className="text-sm text-gray-500">
 								Preview of {type.toLowerCase()} document
 							</DialogDescription>
-							<Button
-								variant="ghost"
-								size="icon"
-								className="h-6 w-6 rounded-full hover:bg-gray-100"
-								onClick={handleReload}
-							>
-								<RotateCw className="h-4 w-4" />
-								<span className="sr-only">Reload</span>
-							</Button>
+							<div className="flex items-center gap-2">
+								<Button
+									variant="ghost"
+									size="icon"
+									className="h-8 w-8 rounded-full hover:bg-gray-100"
+									onClick={handleReload}
+								>
+									<RotateCw className="h-4 w-4" />
+									<span className="sr-only">Reload</span>
+								</Button>
+								<Button
+									variant="ghost"
+									size="icon"
+									className="h-8 w-8 rounded-full hover:bg-gray-100"
+									onClick={onDownload}
+								>
+									<Download className="h-4 w-4" />
+									<span className="sr-only">Download</span>
+								</Button>
+							</div>
 						</div>
 					</DialogHeader>
 					<div className="relative flex-1 overflow-hidden bg-gray-50/50 p-6">
@@ -121,6 +126,6 @@ export function DocumentPreview({
 					</div>
 				</DialogContent>
 			</Dialog>
-		</div>
+		</>
 	)
 }

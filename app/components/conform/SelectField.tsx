@@ -18,7 +18,7 @@ export const SelectField = ({
 	onValueChange,
 	...props
 }: {
-	meta: FieldMetadata<string>
+	meta: FieldMetadata<string | number | null | undefined>
 	items: Array<{ name: string; value: string }>
 	placeholder: string
 	onValueChange?: (value: string) => void

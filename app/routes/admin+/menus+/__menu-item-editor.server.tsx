@@ -60,7 +60,13 @@ export async function action({ request }: ActionFunctionArgs) {
 	const submission = await parseWithZod(formData, {
 		schema: MenuItemEditorSchema.superRefine(async (data, ctx) => {
 			const menuItem = await prisma.menuItem.findUnique({
-				where: { menuId_name: { menuId: data.menuId, name: data.name } },
+				where: {
+					menuId_name_link: {
+						menuId: data.menuId,
+						name: data.name,
+						link: data.link,
+					},
+				},
 				select: { id: true },
 			})
 
@@ -68,7 +74,7 @@ export async function action({ request }: ActionFunctionArgs) {
 				ctx.addIssue({
 					path: ['name'],
 					code: z.ZodIssueCode.custom,
-					message: 'Menu Item with this name already exists.',
+					message: 'Menu Item with this name and link already exists.',
 				})
 				return
 			}

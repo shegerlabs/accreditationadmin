@@ -1,6 +1,8 @@
 import { parseWithZod } from '@conform-to/zod'
+import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
+import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
@@ -12,7 +14,7 @@ import {
 } from './__participant-type-editor'
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId } = params
 
@@ -35,8 +37,26 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			)
 		}
 
+		const participantTypeToDelete = await prisma.participantType.findUnique({
+			where: { id: submission.value.id },
+			select: { id: true, name: true, description: true, tenantId: true },
+		})
+
 		await prisma.participantType.delete({
 			where: { id: submission.value.id },
+		})
+
+		await auditRequest({
+			request,
+			action: AuditAction.DELETE,
+			entityType: AuditEntityType.PARTICIPANT_TYPE,
+			entityId: submission.value.id,
+			description: `Deleted participant type "${participantTypeToDelete?.name}"`,
+			userId: user.id,
+			tenantId: participantTypeToDelete?.tenantId || tenantId,
+			metadata: {
+				participantType: participantTypeToDelete,
+			},
 		})
 
 		return redirectWithToast(`/admin/tenants/${tenantId}/participant-types`, {
@@ -72,15 +92,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		)
 	}
 
-	const { id: participantTypeId, ...data } = submission.value
+	const { id: participantTypeId, name, description, ...data } = submission.value
 
-	await prisma.participantType.upsert({
-		select: { id: true },
+	const isUpdate = !!participantTypeId
+
+	const participantType = await prisma.participantType.upsert({
+		select: { id: true, name: true, tenantId: true },
 		where: { id: participantTypeId ?? '__new_participant_type__' },
 		create: {
 			...data,
-			canSendPrivateRequest: data.canSendPrivateRequest ?? false,
-			canSendAnonymousRequest: data.canSendAnonymousRequest ?? false,
+			name: name!,
+			description: description!,
 			isExemptedFromFullQuota: data.isExemptedFromFullQuota ?? false,
 			isExemptedFromOpenSessionQuota:
 				data.isExemptedFromOpenSessionQuota ?? false,
@@ -89,8 +111,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		},
 		update: {
 			...data,
-			canSendPrivateRequest: data.canSendPrivateRequest ?? false,
-			canSendAnonymousRequest: data.canSendAnonymousRequest ?? false,
+			name: name!,
+			description: description!,
 			isExemptedFromFullQuota: data.isExemptedFromFullQuota ?? false,
 			isExemptedFromOpenSessionQuota:
 				data.isExemptedFromOpenSessionQuota ?? false,
@@ -99,9 +121,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		},
 	})
 
+	await auditRequest({
+		request,
+		action: isUpdate ? AuditAction.UPDATE : AuditAction.CREATE,
+		entityType: AuditEntityType.PARTICIPANT_TYPE,
+		entityId: participantType.id,
+		description: `${isUpdate ? 'Updated' : 'Created'} participant type "${name}"`,
+		userId: user.id,
+		tenantId: participantType.tenantId || tenantId,
+		metadata: {
+			participantType: {
+				id: participantType.id,
+				name,
+				description,
+				...data,
+			},
+		},
+	})
+
 	return redirectWithToast(`/admin/tenants/${tenantId}/participant-types`, {
 		type: 'success',
-		title: `Participant Type ${participantTypeId ? 'Updated' : 'Created'}`,
-		description: `Participant Type ${participantTypeId ? 'updated' : 'created'} successfully.`,
+		title: `Participant Type ${isUpdate ? 'Updated' : 'Created'}`,
+		description: `Participant Type ${isUpdate ? 'updated' : 'created'} successfully.`,
 	})
 }

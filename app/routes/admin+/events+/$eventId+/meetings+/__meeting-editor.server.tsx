@@ -1,6 +1,9 @@
 import { parseWithZod } from '@conform-to/zod'
+import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
+import { auditRequest } from '~/utils/audit.server'
+import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
@@ -8,6 +11,8 @@ import { redirectWithToast } from '~/utils/toast.server'
 import { MeetingDeleteSchema, MeetingEditorSchema } from './__meeting-editor'
 
 export async function action({ request }: ActionFunctionArgs) {
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
+
 	const formData = await request.formData()
 	checkHoneypot(formData)
 	await validateCSRF(formData, request.headers)
@@ -27,9 +32,32 @@ export async function action({ request }: ActionFunctionArgs) {
 			)
 		}
 
+		const meetingToDelete = await prisma.meeting.findUnique({
+			where: { id: submission.value.id },
+			select: {
+				id: true,
+				tenantId: true,
+				eventId: true,
+				meetingType: { select: { name: true } },
+				venue: { select: { name: true } },
+				event: { select: { name: true } },
+			},
+		})
+
 		const meeting = await prisma.meeting.delete({
 			select: { eventId: true },
 			where: { id: submission.value.id },
+		})
+
+		await auditRequest({
+			request,
+			action: AuditAction.DELETE,
+			entityType: AuditEntityType.MEETING,
+			entityId: submission.value.id,
+			description: `Deleted meeting "${meetingToDelete?.meetingType.name}" at "${meetingToDelete?.venue.name}" from event "${meetingToDelete?.event.name}"`,
+			userId: user.id,
+			tenantId: meetingToDelete?.tenantId,
+			metadata: { meeting: meetingToDelete },
 		})
 
 		return redirectWithToast(`/admin/events/${meeting.eventId}/meetings`, {
@@ -78,9 +106,16 @@ export async function action({ request }: ActionFunctionArgs) {
 	}
 
 	const { id: meetingId, ...data } = submission.value
+	const isUpdate = !!meetingId
 
-	await prisma.meeting.upsert({
-		select: { id: true },
+	const meeting = await prisma.meeting.upsert({
+		select: {
+			id: true,
+			tenantId: true,
+			meetingType: { select: { name: true } },
+			venue: { select: { name: true } },
+			event: { select: { name: true } },
+		},
 		where: { id: meetingId ?? '__new_meeting__' },
 		create: {
 			...data,
@@ -90,9 +125,22 @@ export async function action({ request }: ActionFunctionArgs) {
 		},
 	})
 
+	await auditRequest({
+		request,
+		action: isUpdate ? AuditAction.UPDATE : AuditAction.CREATE,
+		entityType: AuditEntityType.MEETING,
+		entityId: meeting.id,
+		description: `${isUpdate ? 'Updated' : 'Created'} meeting "${meeting.meetingType.name}" at "${meeting.venue.name}" for event "${meeting.event.name}"`,
+		userId: user.id,
+		tenantId: meeting.tenantId,
+		metadata: {
+			meeting: { id: meeting.id, ...data },
+		},
+	})
+
 	return redirectWithToast(`/admin/events/${data.eventId}/meetings`, {
 		type: 'success',
-		title: `Meeting ${meetingId ? 'Updated' : 'Created'}`,
-		description: `Meeting ${meetingId ? 'updated' : 'created'} successfully.`,
+		title: `Meeting ${isUpdate ? 'Updated' : 'Created'}`,
+		description: `Meeting ${isUpdate ? 'updated' : 'created'} successfully.`,
 	})
 }

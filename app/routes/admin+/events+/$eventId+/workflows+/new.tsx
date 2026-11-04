@@ -7,7 +7,7 @@ import { WorkflowEditor } from './__workflow-editor'
 export { action } from './__workflow-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { eventId } = params
 
@@ -18,10 +18,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	invariantResponse(event, 'Event not found', { status: 404 })
 
-	return json({ event })
+	// Fetch workflow templates for the tenant
+	const templates = await prisma.workflowTemplate.findMany({
+		where: { tenantId: event.tenantId },
+		select: { id: true, name: true, description: true },
+		orderBy: { name: 'asc' },
+	})
+
+	return json({ event, templates })
 }
 
 export default function AddWorkflowRoute() {
-	const { event } = useLoaderData<typeof loader>()
-	return <WorkflowEditor title="Add New Workflow" intent="add" event={event} />
+	const { event, templates } = useLoaderData<typeof loader>()
+	return (
+		<WorkflowEditor
+			title="Add New Workflow"
+			intent="add"
+			event={event}
+			templates={templates}
+		/>
+	)
 }

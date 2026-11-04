@@ -25,27 +25,28 @@ import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
+import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { redirectWithToast } from '~/utils/toast.server'
 
-const MAX_UPLOAD_SIZE = 5 * 1024 * 1024 // 5MB
-
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 	return json({})
 }
 
-const UserImportSchema = z.object({
-	csvFile: z
-		.instanceof(File)
-		.refine(
-			file => file.size <= MAX_UPLOAD_SIZE,
-			'File size must be less than 5MB',
-		)
-		.refine(
-			file => file.type === 'text/csv' || file.name.endsWith('.csv'),
-			'Only CSV files are allowed',
-		),
-})
+function createUserImportSchema(maxUploadSizeBytes: number, maxUploadSizeMB: number) {
+	return z.object({
+		csvFile: z
+			.instanceof(File)
+			.refine(
+				file => file.size <= maxUploadSizeBytes,
+				`File size must be less than ${maxUploadSizeMB}MB`,
+			)
+			.refine(
+				file => file.type === 'text/csv' || file.name.endsWith('.csv'),
+				'Only CSV files are allowed',
+			),
+	})
+}
 
 type ActionData = {
 	status: 'error'
@@ -60,10 +61,14 @@ interface CSVRow {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await requireUserWithRoles(request, ['admin'])
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
+
+	// Get upload settings
+	const maxUploadSizeMB = await getSetting<number>(SettingKeys.UPLOAD_MAX_CSV_SIZE_MB)
+	const maxUploadSizeBytes = maxUploadSizeMB * 1024 * 1024
 
 	const uploadHandler = createMemoryUploadHandler({
-		maxPartSize: MAX_UPLOAD_SIZE,
+		maxPartSize: maxUploadSizeBytes,
 	})
 
 	const formData = await parseMultipartFormData(request, uploadHandler)
@@ -71,6 +76,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	checkHoneypot(formData)
 	await validateCSRF(formData, request.headers)
 
+	const UserImportSchema = createUserImportSchema(maxUploadSizeBytes, maxUploadSizeMB)
 	const submission = parseWithZod(formData, {
 		schema: UserImportSchema,
 		async: false,

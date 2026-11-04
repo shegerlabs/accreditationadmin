@@ -1,14 +1,13 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { useLoaderData } from '@remix-run/react'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 import { EventEditor } from './__event-editor'
 export { action } from './__event-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
-
+	const user = await requireAdminAccess(request)
 	const { eventId } = params
 
 	const event = await prisma.event.findUnique({
@@ -17,10 +16,27 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	invariantResponse(event, 'Not Found', { status: 404 })
 
-	return json({ event })
+	// Tenant admins can only edit their own tenant's events
+	if (!user.isGlobalAdmin && event.tenantId !== user.tenantId) {
+		throw json({ message: 'Access denied' }, { status: 403 })
+	}
+
+	return json({
+		event,
+		isGlobalAdmin: user.isGlobalAdmin,
+		userTenantId: user.tenantId,
+	})
 }
 
 export default function EditEventRoute() {
-	const { event } = useLoaderData<typeof loader>()
-	return <EventEditor event={event} title="Edit Event" />
+	const { event, isGlobalAdmin, userTenantId } = useLoaderData<typeof loader>()
+
+	return (
+		<EventEditor
+			event={event}
+			title="Edit Event"
+			isGlobalAdmin={isGlobalAdmin}
+			userTenantId={userTenantId}
+		/>
+	)
 }

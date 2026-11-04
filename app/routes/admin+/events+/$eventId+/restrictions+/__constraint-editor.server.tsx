@@ -1,6 +1,8 @@
 import { parseWithZod } from '@conform-to/zod'
+import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
+import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
@@ -12,7 +14,7 @@ import {
 } from './__constraint-editor'
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { eventId, restrictionId } = params
 
@@ -35,8 +37,29 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			)
 		}
 
+		const constraintToDelete = await prisma.constraint.findUnique({
+			where: { id: submission.value.id },
+			select: {
+				id: true,
+				tenantId: true,
+				participantType: { select: { name: true } },
+				restriction: { select: { name: true } },
+			},
+		})
+
 		await prisma.constraint.delete({
 			where: { id: submission.value.id },
+		})
+
+		await auditRequest({
+			request,
+			action: AuditAction.DELETE,
+			entityType: AuditEntityType.RESTRICTION_CONSTRAINT,
+			entityId: submission.value.id,
+			description: `Deleted constraint for "${constraintToDelete?.participantType.name}" from restriction "${constraintToDelete?.restriction.name}"`,
+			userId: user.id,
+			tenantId: constraintToDelete?.tenantId,
+			metadata: { constraint: constraintToDelete },
 		})
 
 		return redirectWithToast(
@@ -83,9 +106,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	const { id: constraintId, ...data } = submission.value
+	const isUpdate = !!constraintId
 
-	await prisma.constraint.upsert({
-		select: { id: true },
+	const constraint = await prisma.constraint.upsert({
+		select: {
+			id: true,
+			tenantId: true,
+			participantType: { select: { name: true } },
+			restriction: { select: { name: true } },
+		},
 		where: { id: constraintId ?? '__new_constraint__' },
 		create: {
 			...data,
@@ -97,12 +126,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		},
 	})
 
+	await auditRequest({
+		request,
+		action: isUpdate ? AuditAction.UPDATE : AuditAction.CREATE,
+		entityType: AuditEntityType.RESTRICTION_CONSTRAINT,
+		entityId: constraint.id,
+		description: `${isUpdate ? 'Updated' : 'Created'} constraint for "${constraint.participantType.name}" in restriction "${constraint.restriction.name}"`,
+		userId: user.id,
+		tenantId: constraint.tenantId,
+		metadata: {
+			constraint: { id: constraint.id, ...data },
+		},
+	})
+
 	return redirectWithToast(
 		`/admin/events/${eventId}/restrictions/${restrictionId}/constraints`,
 		{
 			type: 'success',
-			title: `Constraint ${constraintId ? 'Updated' : 'Created'}`,
-			description: `Constraint ${constraintId ? 'updated' : 'created'} successfully.`,
+			title: `Constraint ${isUpdate ? 'Updated' : 'Created'}`,
+			description: `Constraint ${isUpdate ? 'updated' : 'created'} successfully.`,
 		},
 	)
 }

@@ -7,7 +7,7 @@ import { ParticipantTypeEditor } from './__participant-type-editor'
 export { action } from './__participant-type-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId, participantTypeId } = params
 
@@ -16,8 +16,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 
 	invariantResponse(tenant, 'Tenant not found', { status: 404 })
+
 	const participantType = await prisma.participantType.findUnique({
 		where: { id: participantTypeId },
+		select: {
+			id: true,
+			name: true,
+			description: true,
+			priority: true,
+			isExemptedFromFullQuota: true,
+			isExemptedFromOpenSessionQuota: true,
+			isExemptedFromClosedSessionQuota: true,
+			tenantId: true,
+		},
 	})
 
 	invariantResponse(participantType, 'Participant Type not found', {

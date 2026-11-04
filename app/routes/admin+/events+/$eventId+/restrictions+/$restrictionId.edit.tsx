@@ -7,7 +7,7 @@ import { RestrictionEditor } from './__restriction-editor'
 export { action } from './__restriction-editor.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { eventId, restrictionId } = params
 

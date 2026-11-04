@@ -4,6 +4,7 @@ import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
 import { requireUserWithRoles } from '~/utils/auth.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
+	// Menus management is a global admin function only
 	await requireUserWithRoles(request, ['admin'])
 	return json({})
 }

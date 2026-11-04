@@ -1,18 +1,17 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { useLoaderData, useParams } from '@remix-run/react'
 import { EditIcon, TrashIcon, UserIcon } from 'lucide-react'
-import { useMediaQuery } from 'react-responsive'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin'])
+	await requireUserWithRoles(request, ['admin', 'tenant'])
 
 	const { tenantId } = params
 
-	const { data, totalPages, currentPage } = await filterAndPaginate({
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
 		request,
 		model: prisma.venue,
 		searchFields: ['name'],
@@ -25,13 +24,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		venues: data,
 		totalPages,
 		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
 	} as const)
 }
 
 export default function VenuesListPage() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage } = data
-	const isMobile = useMediaQuery({ maxWidth: 767 })
+	const { totalPages, currentPage, defaultPageSize, pageSizeOptions } = data
 
 	const { tenantId } = useParams()
 
@@ -75,10 +75,12 @@ export default function VenuesListPage() {
 						},
 					]}
 					status={data.status}
-					isMobile={isMobile}
+					
 					keyExtractor={venue => venue.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
+					defaultPageSize={defaultPageSize}
+					pageSizeOptions={pageSizeOptions}
 				/>
 			</div>
 		</div>

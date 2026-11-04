@@ -100,10 +100,15 @@ interface BadgeProps {
 		name: string
 		organization: string
 		closedSession: boolean
+		executiveCouncilClosedSession: boolean
+		profileUrl: string
+		isReprint?: boolean
+		reprintCount?: number
 	}
 	photoUrl: string
 	frontBackgroundUrl: string
 	backBackgroundUrl: string
+	height?: string
 }
 
 export const Badge: React.FC<BadgeProps> = ({
@@ -111,6 +116,7 @@ export const Badge: React.FC<BadgeProps> = ({
 	photoUrl,
 	frontBackgroundUrl,
 	backBackgroundUrl,
+	height = '600px',
 }) => {
 	// Step 1: Declare a state variable to track if we are on the client
 	const [isClient, setIsClient] = useState(false)
@@ -120,12 +126,7 @@ export const Badge: React.FC<BadgeProps> = ({
 	useEffect(() => {
 		// When the component mounts, we set isClient to true
 		setIsClient(true)
-		generateQRCode(
-			JSON.stringify({
-				...badgeInfo,
-				canAttendClosedSession: badgeInfo.closedSession ? 'Yes' : 'No',
-			}),
-		)
+		generateQRCode(badgeInfo.profileUrl)
 	}, [badgeInfo])
 
 	// Step 3: Define the document (badge) content to reuse for both rendering and download
@@ -144,7 +145,7 @@ export const Badge: React.FC<BadgeProps> = ({
 				<Image src={frontBackgroundUrl} style={styles.background} />
 				<View style={styles.section}>
 					<Text style={styles.sessionIndicator}>
-						{badgeInfo.closedSession ? 'C' : ''}
+						{badgeInfo.closedSession ? 'C' : badgeInfo.executiveCouncilClosedSession ? 'CX' : ''}
 					</Text>
 					<View style={styles.row}>
 						{qrCodeDataURL && (
@@ -154,15 +155,15 @@ export const Badge: React.FC<BadgeProps> = ({
 					</View>
 					<View style={styles.nameContainer}>
 						<Text style={styles.name}>Name: {badgeInfo.name}</Text>
-						<Text style={styles.organization}>
+						{/* <Text style={styles.organization}>
 							Org: {badgeInfo.organization}
-						</Text>
+						</Text> */}
 					</View>
 				</View>
 				{/* <View style={styles.bottomSection}>
 					<Text style={styles.africanUnionText}>African Union</Text>
 				</View> */}
-			</Page>
+				</Page>
 			{/* Back of the badge */}
 			<Page size={[153, 243]} style={styles.page}>
 				<Image src={backBackgroundUrl} style={styles.background} />
@@ -180,9 +181,9 @@ export const Badge: React.FC<BadgeProps> = ({
 	}
 
 	return (
-		<div className="flex flex-col gap-4">
+		<div className="flex h-full flex-col gap-4">
 			{/* Step 5: Render the PDF inline using PDFViewer */}
-			<PDFViewer width="100%" height="600px">
+			<PDFViewer width="100%" height={height}>
 				{badgeDocument}
 			</PDFViewer>
 		</div>
