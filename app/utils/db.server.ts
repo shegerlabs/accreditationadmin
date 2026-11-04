@@ -498,7 +498,6 @@ export async function filterAndPaginate<
 	pageSizeOptions: number[]
 }> {
 	const url = new URL(request.url)
-	const searchTerm = url.searchParams.get('search') || ''
 	const page = parseInt(url.searchParams.get('page') || '1', 10)
 	const pageSizeParam = url.searchParams.get('pageSize')
 
@@ -507,6 +506,53 @@ export async function filterAndPaginate<
 	const pageSizeOptions = [10, 20, 50, 100] // Standard options
 	const pageSize =
 		pageSizeParam === 'All' ? undefined : parseInt(pageSizeParam || String(defaultPageSize), 10)
+
+	const combinedWhere = buildFilteredWhere({
+		url,
+		searchFields,
+		filterFields,
+		where,
+	})
+
+	const totalItems = await model.count({ where: combinedWhere })
+
+	const totalPages = pageSize ? Math.ceil(totalItems / pageSize) : 1
+
+	const data = await model.findMany({
+		where: combinedWhere,
+		orderBy,
+		take: pageSize,
+		skip: pageSize ? (page - 1) * pageSize : undefined,
+		...(select ? { select } : {}),
+		...(include ? { include } : {}), // Conditionally include 'include'
+	})
+
+	return {
+		data,
+		totalPages,
+		currentPage: page,
+		defaultPageSize,
+		pageSizeOptions,
+	}
+}
+
+/**
+ * Builds the where clause filterAndPaginate uses from the URL's `search` term
+ * and filter params, combined with a base `where`. Exports use it to select
+ * the same rows a list page shows, without pagination.
+ */
+export function buildFilteredWhere({
+	url,
+	searchFields = [],
+	filterFields = [],
+	where = {},
+}: {
+	url: URL
+	searchFields?: SearchField[]
+	filterFields?: FilterField[]
+	where?: unknown
+}): any {
+	const searchTerm = url.searchParams.get('search') || ''
 
 	// Build search conditions
 	let searchConditions: SearchCondition = {}
@@ -539,31 +585,10 @@ export async function filterAndPaginate<
 		andConditions.push(filterConditions)
 	}
 
-	const combinedWhere: any =
-		andConditions.length > 1
-			? { AND: andConditions }
-			: andConditions[0] ?? {}
-
-	const totalItems = await model.count({ where: combinedWhere })
-
-	const totalPages = pageSize ? Math.ceil(totalItems / pageSize) : 1
-
-	const data = await model.findMany({
-		where: combinedWhere,
-		orderBy,
-		take: pageSize,
-		skip: pageSize ? (page - 1) * pageSize : undefined,
-		...(select ? { select } : {}),
-		...(include ? { include } : {}), // Conditionally include 'include'
-	})
-
-	return {
-		data,
-		totalPages,
-		currentPage: page,
-		defaultPageSize,
-		pageSizeOptions,
-	}
+	return andConditions.length > 1
+		? { AND: andConditions }
+		: andConditions[0] ?? {}
 }
 
+export type { FilterField, SearchField }
 export { prisma }

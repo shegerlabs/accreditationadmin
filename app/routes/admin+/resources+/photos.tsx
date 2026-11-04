@@ -1,56 +1,25 @@
-import { RequestStatus } from '@prisma/client'
 import { LoaderFunctionArgs } from '@remix-run/node'
 import archiver from 'archiver'
 import { PassThrough } from 'stream'
-import { requireUserWithRoles } from '~/utils/auth.server'
+import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
+import { backToParticipantList } from '~/utils/participant-export.server'
+import { participantExportWhere } from '~/utils/participant-filters.server'
 import { getFile } from '~/utils/storage.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserWithRoles(request, ['admin', 'tenant'])
+	const user = await requireAdminAccess(request)
 
 	const url = new URL(request.url)
-	const selectedIds = url.searchParams.get('selectedIds')
 	const countryId = url.searchParams.get('countryId')
-	const nationalityId = url.searchParams.get('nationalityId')
 	const status = url.searchParams.get('status')
 	const participantTypeId = url.searchParams.get('participantTypeId')
-	const organization = url.searchParams.get('organization')
 
-	// Build where clause - prioritize selectedIds if present
-	let photoWhereClause: Record<string, unknown> = { documentType: 'PHOTO' }
-
-	if (selectedIds) {
-		const ids = selectedIds.split(',').filter(Boolean)
-		photoWhereClause = {
-			documentType: 'PHOTO',
-			participantId: { in: ids },
-		}
-	} else {
-		// Build where clause based on filters
-		const participantWhere: Record<string, string | RequestStatus> = {}
-		if (countryId && countryId !== 'all') {
-			participantWhere.countryId = countryId
-		}
-		if (nationalityId && nationalityId !== 'all') {
-			participantWhere.nationalityId = nationalityId
-		}
-		if (status && status !== 'all') {
-			participantWhere.status = status as RequestStatus
-		}
-		if (participantTypeId && participantTypeId !== 'all') {
-			participantWhere.participantTypeId = participantTypeId
-		}
-		if (organization && organization !== 'all') {
-			participantWhere.organization = organization
-		}
-
-		if (Object.keys(participantWhere).length > 0) {
-			photoWhereClause = {
-				documentType: 'PHOTO',
-				participant: participantWhere,
-			}
-		}
+	// SECURITY: the same participants the list shows, limited to the user's
+	// tenant (global admins see every tenant).
+	const photoWhereClause = {
+		documentType: 'PHOTO' as const,
+		participant: participantExportWhere(request, getTenantFilter(user)),
 	}
 
 	// Fetch all photo documents matching filters
@@ -74,11 +43,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	})
 
 	if (photos.length === 0) {
-		return new Response('No photos found matching the criteria', {
-			status: 404,
-			headers: {
-				'content-type': 'text/plain',
-			},
+		return backToParticipantList(request, {
+			title: 'No photos to download',
+			description: 'None of the participants matching the current filters have a photo.',
 		})
 	}
 

@@ -32,6 +32,11 @@ import { auditRequest } from '~/utils/audit.server'
 import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { getCachedCountries } from '~/utils/cache.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
+import {
+	participantBaseWhere,
+	participantFilterFields,
+	participantSearchFields,
+} from '~/utils/participant-filters.server'
 
 const RestoreParticipantSchema = z.object({
 	participantId: z.string(),
@@ -88,53 +93,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await requireAdminAccess(request)
 	const tenantFilter = getTenantFilter(user)
 
-	// Check deleted filter: 'all', 'active', or 'deleted'
 	const url = new URL(request.url)
 	const deletedFilter = url.searchParams.get('deleted') || 'active'
-	const deletedCondition =
-		deletedFilter === 'all'
-			? {}
-			: deletedFilter === 'deleted'
-				? { deletedAt: { not: null } }
-				: { deletedAt: null }
-
-	// Check stage filter for stuck requests at system steps
-	const stageFilter = url.searchParams.get('stage') || 'all'
-	const stageCondition =
-		stageFilter === 'stuck'
-			? { step: { name: { in: ['Request Received', 'Review Request'] } } }
-			: {}
 
 	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
 		await filterAndPaginate({
 			request,
 			model: prisma.participant,
-			where: {
-				...tenantFilter,
-				...deletedCondition,
-				...stageCondition,
-			},
-			searchFields: [
-				'id',
-				'email',
-				'organization',
-				'registrationCode',
-				'firstName',
-				'familyName',
-				{ tenant: 'name' },
-				{ event: 'name' },
-				{ participantType: 'name' },
-				{ country: 'name' },
-			],
-			filterFields: [
-				'participantTypeId',
-				'status',
-				'nationalityId',
-				'organization',
-				'tenantId',
-				{ field: 'wishList', operator: 'array-contains' },
-				{ field: 'attendClosedSession', isBoolean: true },
-			],
+			where: participantBaseWhere(url, tenantFilter),
+			searchFields: participantSearchFields,
+			filterFields: participantFilterFields,
 			orderBy: [{ createdAt: 'desc' }],
 			select: {
 				id: true,
@@ -267,6 +235,8 @@ export default function IndexRoute() {
 	const fetcher = useFetcher()
 
 	// Build export URL with either selected IDs or current filters
+	const nothingToExport = data.participants.length === 0
+
 	const buildExportUrl = (basePath: string) => {
 		const params = new URLSearchParams(searchParams)
 		if (selectedIds.size > 0) {
@@ -403,7 +373,7 @@ export default function IndexRoute() {
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
-									<DropdownMenuItem asChild>
+									<DropdownMenuItem asChild disabled={nothingToExport}>
 										<a
 											href={buildExportUrl('/admin/resources/participants')}
 											className="flex items-center gap-2"
@@ -411,7 +381,25 @@ export default function IndexRoute() {
 											Export Excel
 										</a>
 									</DropdownMenuItem>
-									<DropdownMenuItem asChild>
+									<DropdownMenuItem asChild disabled={nothingToExport}>
+										<a
+											href={buildExportUrl(
+												'/admin/resources/participants-screening',
+											)}
+											className="flex items-center gap-2"
+										>
+											Screening List (Excel)
+										</a>
+									</DropdownMenuItem>
+									<DropdownMenuItem asChild disabled={nothingToExport}>
+										<a
+											href={buildExportUrl('/admin/resources/participants-vip')}
+											className="flex items-center gap-2"
+										>
+											VIP List with Photos (Word)
+										</a>
+									</DropdownMenuItem>
+									<DropdownMenuItem asChild disabled={nothingToExport}>
 										<a
 											href={buildExportUrl('/admin/resources/photos')}
 											className="flex items-center gap-2"
