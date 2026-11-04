@@ -327,8 +327,8 @@ export default function App() {
 																title={item.title}
 																className={({ isActive }) =>
 																	isActive
-																		? 'flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-primary transition-all hover:text-primary'
-																		: 'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:text-primary'
+																		? 'flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-all'
+																		: 'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-muted hover:text-foreground'
 																}
 															>
 																<Icon name={item.icon} className="h-4 w-4" />
@@ -349,8 +349,8 @@ export default function App() {
 																	to={`${item.link}`}
 																	className={({ isActive }) =>
 																		isActive
-																			? 'flex items-center gap-3 rounded-lg bg-muted px-3 py-2 text-primary transition-all hover:text-primary'
-																			: 'flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary'
+																			? 'flex items-center gap-3 rounded-lg bg-primary px-3 py-2 text-primary-foreground transition-all'
+																			: 'flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:bg-muted hover:text-foreground'
 																	}
 																>
 																	<Icon name={item.icon} className="h-4 w-4" />
@@ -485,8 +485,8 @@ export default function App() {
 																		to={`${item.link}`}
 																		className={({ isActive }) =>
 																			isActive
-																				? 'flex items-center gap-3 rounded-lg bg-muted px-3 py-2 text-primary transition-all hover:text-primary'
-																				: 'flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary'
+																				? 'flex items-center gap-3 rounded-lg bg-primary px-3 py-2 text-primary-foreground transition-all'
+																				: 'flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:bg-muted hover:text-foreground'
 																		}
 																	>
 																		<Icon
