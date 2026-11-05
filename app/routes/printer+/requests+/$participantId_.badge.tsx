@@ -25,6 +25,7 @@ import {
 	DialogTitle,
 } from '~/components/ui/dialog'
 import { auditRequest } from '~/utils/audit.server'
+import { badgeQrUrl } from '~/utils/badge-qr'
 import {
 	getUserAccessibleStepIds,
 	requireUserWithRoles,
@@ -235,7 +236,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		passportExpiry: participant.passportExpiry,
 		attendClosedSession: participant.attendClosedSession,
 		attendExecutiveCouncilClosedSession: participant.attendExecutiveCouncilClosedSession,
-		profileUrl: `${baseUrl}/printer/requests/${participant.id}`,
+		profileUrl: badgeQrUrl(baseUrl, 'requests', participant),
 	}
 
 	const professionalInfo = {

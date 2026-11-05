@@ -3,6 +3,7 @@ import {
 	getUserAccessibleStepIds,
 	requireUserWithRoles,
 } from '~/utils/auth.server'
+import { getRevokedBadgeError, parseBadgeQr } from '~/utils/badge-qr'
 import { prisma } from '~/utils/db.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -15,21 +16,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		return json({ ok: false, error: 'No QR data provided' } as const)
 	}
 
-	// Extract participantId from QR data
-	// QR codes encode URLs like https://domain/printer/requests/{participantId}
-	// Also handle raw IDs
-	let participantId: string | null = null
-
-	try {
-		const parsed = new URL(qrData)
-		const match = parsed.pathname.match(/\/requests\/([^/]+)$/)
-		if (match) {
-			participantId = match[1]
-		}
-	} catch {
-		// Not a URL — treat the raw string as a participant ID
-		participantId = qrData.trim()
-	}
+	const scanned = parseBadgeQr(qrData)
+	const participantId = scanned?.id ?? null
 
 	if (!participantId) {
 		return json({ ok: false, error: 'Could not extract participant ID from QR code' } as const)
@@ -48,6 +36,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			organization: true,
 			status: true,
 			stepId: true,
+			badgeVersion: true,
+			badgeRevokedAt: true,
+			badgeRevokedReason: true,
 			participantType: {
 				select: { name: true },
 			},
@@ -56,6 +47,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	if (!participant) {
 		return json({ ok: false, error: 'Participant not found' } as const)
+	}
+
+	const revokedError = getRevokedBadgeError(participant, scanned?.version ?? null)
+	if (revokedError) {
+		return json({ ok: false, error: revokedError } as const)
 	}
 
 	if (participant.status === 'COLLECTED') {

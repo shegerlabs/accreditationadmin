@@ -26,6 +26,7 @@ import {
 	DialogTitle,
 } from '~/components/ui/dialog'
 import { auditRequest } from '~/utils/audit.server'
+import { badgeQrUrl } from '~/utils/badge-qr'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
@@ -304,7 +305,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		passportExpiry: participant.passportExpiry,
 		attendClosedSession: participant.attendClosedSession,
 		attendExecutiveCouncilClosedSession: participant.attendExecutiveCouncilClosedSession,
-		profileUrl: `${baseUrl}/printer/reprints/${participant.id}`,
+		profileUrl: badgeQrUrl(baseUrl, 'reprints', participant),
 		reprintCount: participant.reprintCount,
 	}
 

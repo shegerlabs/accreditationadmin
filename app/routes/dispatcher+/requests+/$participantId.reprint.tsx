@@ -13,6 +13,7 @@ import { RefreshCw } from 'lucide-react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { z } from 'zod'
+import { CheckboxField } from '~/components/conform/CheckboxField'
 import { InputField } from '~/components/conform/InputField'
 import { TextareaField } from '~/components/conform/TextareaField'
 import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
@@ -45,6 +46,7 @@ export const ReprintRequestSchema = z.object({
 	reason: z
 		.string({ required_error: 'Reason for reprint is required' })
 		.min(10, 'Please provide a detailed reason (at least 10 characters)'),
+	revoke: z.boolean().optional(),
 })
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -69,7 +71,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	const accessibleStepIds = await getUserAccessibleStepIds(user.id, ['dispatcher'])
 	const stepFilter = { stepId: { in: accessibleStepIds } }
 
-	const { id: participantId, reason } = submission.value
+	const { id: participantId, reason, revoke = false } = submission.value
 
 	// Get reprint settings
 	const maxReprints = await getSetting<number>(SettingKeys.REPRINT_MAX_COUNT)
@@ -88,6 +90,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			status: true,
 			tenantId: true,
 			reprintCount: true,
+			badgeVersion: true,
 			step: {
 				select: {
 					id: true,
@@ -159,17 +162,32 @@ export async function action({ request }: ActionFunctionArgs) {
 		}
 	}
 
-	// Create the reprint request approval record
-	await prisma.approval.create({
-		data: {
-			participantId: participant.id,
-			stepId: participant.step.id,
-			userId: user.id,
-			action: Action.REPRINT,
-			result: 'SUCCESS',
-			remarks: `Reprint requested: ${reason}`,
-		},
-	})
+	// Revoking bumps badgeVersion, so the printer's replacement carries the new
+	// version and the checker rejects the badge being replaced.
+	await prisma.$transaction([
+		prisma.approval.create({
+			data: {
+				participantId: participant.id,
+				stepId: participant.step.id,
+				userId: user.id,
+				action: Action.REPRINT,
+				result: 'SUCCESS',
+				remarks: `${revoke ? 'Badge revoked and reprint' : 'Reprint'} requested: ${reason}`,
+			},
+		}),
+		...(revoke
+			? [
+					prisma.participant.update({
+						where: { id: participant.id },
+						data: {
+							badgeVersion: { increment: 1 },
+							badgeRevokedAt: new Date(),
+							badgeRevokedReason: reason,
+						},
+					}),
+				]
+			: []),
+	])
 
 	// Log reprint request action
 	await auditRequest({
@@ -177,7 +195,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		action: AuditAction.REPRINT,
 		entityType: AuditEntityType.PARTICIPANT,
 		entityId: participant.id,
-		description: `Reprint requested for ${participant.firstName} ${participant.familyName}`,
+		description: `${revoke ? 'Badge revoked and reprint' : 'Reprint'} requested for ${participant.firstName} ${participant.familyName}`,
 		userId: user.id,
 		tenantId: participant.tenantId,
 		metadata: {
@@ -190,6 +208,8 @@ export async function action({ request }: ActionFunctionArgs) {
 			},
 			reprintRequest: {
 				reason,
+				revoked: revoke,
+				revokedBadgeVersion: revoke ? participant.badgeVersion : undefined,
 				currentReprintCount: participant.reprintCount,
 				requestedBy: user.id,
 				requestedAt: new Date().toISOString(),
@@ -211,8 +231,10 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	return redirectWithToast(redirectUrl, {
 		type: 'success',
-		title: 'Reprint Requested',
-		description: `Reprint request submitted for ${participant.firstName} ${participant.familyName}. The printer will be notified.`,
+		title: revoke ? 'Badge Revoked' : 'Reprint Requested',
+		description: revoke
+			? `The current badge for ${participant.firstName} ${participant.familyName} will be rejected at checkpoints. A replacement has been requested from the printer.`
+			: `Reprint request submitted for ${participant.firstName} ${participant.familyName}. The printer will be notified.`,
 	})
 }
 
@@ -273,6 +295,7 @@ export default function ReprintRequestDialog() {
 		defaultValue: {
 			id: participant.id,
 			reason: '',
+			revoke: '',
 		},
 	})
 
@@ -345,6 +368,18 @@ export default function ReprintRequestDialog() {
 								<FieldError>{fields.reason.errors}</FieldError>
 							)}
 						</Field>
+						<div className="flex items-start gap-3 rounded-md border p-3">
+							<CheckboxField meta={fields.revoke} />
+							<div className="grid gap-1">
+								<Label htmlFor={fields.revoke.id} className="cursor-pointer">
+									Badge lost or stolen: revoke it
+								</Label>
+								<p className="text-sm text-muted-foreground">
+									Checkpoints reject the current badge from now on. Only the
+									replacement will scan as valid.
+								</p>
+							</div>
+						</div>
 					</div>
 
 					{form.errors && form.errors.length > 0 && (

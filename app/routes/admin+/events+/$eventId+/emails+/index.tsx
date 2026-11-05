@@ -31,7 +31,11 @@ import {
 	EMAIL_TEMPLATE_DEFAULTS,
 	EMAIL_TRIGGERS,
 } from '~/utils/participant-email'
-import { resendEmail } from '~/utils/participant-email.server'
+import {
+	getEmailsToRetry,
+	resendEmail,
+	retryFailedEmails,
+} from '~/utils/participant-email.server'
 import { redirectWithToast } from '~/utils/toast.server'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
@@ -85,13 +89,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			: {}),
 	}
 
-	const [total, statusCounts] = await Promise.all([
+	const [total, statusCounts, toRetry] = await Promise.all([
 		prisma.emailLog.count({ where }),
 		prisma.emailLog.groupBy({
 			by: ['status'],
 			where: eventWhere,
 			_count: true,
 		}),
+		getEmailsToRetry(event.id),
 	])
 	const totalPages = Math.max(1, Math.ceil(total / pageSize))
 	// Changing a filter keeps the old ?page, which can be past the new last page.
@@ -128,6 +133,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return json({
 		emails,
 		counts,
+		retryCount: toRetry.length,
 		totalPages,
 		currentPage: page,
 	})
@@ -137,6 +143,33 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const { event, user } = await getEvent(request, params.eventId)
 	const formData = await request.formData()
 	await validateCSRF(formData, request.headers)
+
+	// Keep the admin's filters and page, minus Remix's ?index marker.
+	const url = new URL(request.url)
+	url.searchParams.delete('index')
+	const search = url.searchParams.toString()
+	const redirectTo = `${url.pathname}${search ? `?${search}` : ''}`
+
+	if (formData.get('intent') === 'retry-failed') {
+		const count = await retryFailedEmails(event.id, user.id)
+		await auditRequest({
+			request,
+			action: AuditAction.OTHER,
+			entityType: AuditEntityType.EVENT,
+			entityId: event.id,
+			description: `Retried ${count} failed email${count === 1 ? '' : 's'}`,
+			userId: user.id,
+			tenantId: event.tenantId,
+			metadata: { count },
+		})
+		return redirectWithToast(redirectTo, {
+			type: count ? 'success' : 'message',
+			title: count ? 'Retrying failed emails' : 'Nothing to retry',
+			description: count
+				? `Sending ${count} email${count === 1 ? '' : 's'} again, one at a time. Refresh to see their status.`
+				: 'Every failed email has since been sent or is already being resent.',
+		})
+	}
 
 	const emailLogId = formData.get('emailLogId')
 	invariantResponse(typeof emailLogId === 'string', 'Email not found', {
@@ -160,11 +193,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		metadata: { emailLogId: emailLog.id, trigger: resent.trigger },
 	})
 
-	// Keep the admin's filters and page, minus Remix's ?index marker.
-	const url = new URL(request.url)
-	url.searchParams.delete('index')
-	const search = url.searchParams.toString()
-	return redirectWithToast(`${url.pathname}${search ? `?${search}` : ''}`, {
+	return redirectWithToast(redirectTo, {
 		type: 'success',
 		title: 'Email resent',
 		description: `Sending to ${resent.recipient}. It appears at the top of the log; refresh to see its status.`,
@@ -178,12 +207,15 @@ const statusStyles: Record<EmailStatus, string> = {
 }
 
 export default function EventEmailLogRoute() {
-	const { emails, counts, totalPages, currentPage } =
+	const { emails, counts, retryCount, totalPages, currentPage } =
 		useLoaderData<typeof loader>()
 	const [searchParams] = useSearchParams()
 	const navigation = useNavigation()
 	const resendingId =
 		navigation.state !== 'idle' ? navigation.formData?.get('emailLogId') : null
+	const isRetrying =
+		navigation.state !== 'idle' &&
+		navigation.formData?.get('intent') === 'retry-failed'
 	const location = useLocation()
 	const isFiltered = ['status', 'trigger', 'search'].some(key =>
 		searchParams.get(key),
@@ -192,12 +224,26 @@ export default function EventEmailLogRoute() {
 	return (
 		<Card>
 			<CardHeader className="gap-4 space-y-0">
-				<div className="flex flex-col gap-1">
-					<CardTitle>Email log</CardTitle>
-					<p className="text-sm text-muted-foreground">
-						{counts.SENT} sent · {counts.FAILED} failed · {counts.PENDING}{' '}
-						pending
-					</p>
+				<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+					<div className="flex flex-col gap-1">
+						<CardTitle>Email log</CardTitle>
+						<p className="text-sm text-muted-foreground">
+							{counts.SENT} sent · {counts.FAILED} failed · {counts.PENDING}{' '}
+							pending
+						</p>
+					</div>
+					{retryCount > 0 && (
+						<Form method="POST">
+							<AuthenticityTokenInput />
+							<input type="hidden" name="intent" value="retry-failed" />
+							<Button type="submit" size="sm" disabled={isRetrying}>
+								<RotateCwIcon className="mr-2 h-4 w-4" />
+								{isRetrying
+									? 'Retrying...'
+									: `Retry ${retryCount} failed`}
+							</Button>
+						</Form>
+					)}
 				</div>
 				<SearchBar
 					status="idle"

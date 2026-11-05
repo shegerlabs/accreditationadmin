@@ -730,6 +730,11 @@ model Participant {
   collectionNotes       String?
   collectedAt           DateTime?
   reprintCount          Int                   @default(0)
+  // Printed in the badge QR code as ?v=. Revoking a badge bumps it, so scans of
+  // the older badge are rejected while the replacement scans normally.
+  badgeVersion          Int                   @default(1)
+  badgeRevokedAt        DateTime?
+  badgeRevokedReason    String?
   stepId                String
   step                  Step                  @relation(fields: [stepId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   createdAt             DateTime              @default(now())
