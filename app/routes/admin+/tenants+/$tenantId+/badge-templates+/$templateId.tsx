@@ -152,7 +152,7 @@ export default function BadgeTemplateDesignerRoute() {
 	)
 
 	return (
-		<div className="flex h-[calc(100vh-10rem)] flex-col gap-2">
+		<div className="flex h-[calc(100dvh-10rem)] flex-col gap-2">
 			{/* Hidden form - submit triggered from VisualDesigner */}
 			<Form method="POST" {...getFormProps(form)} id="badge-elements-form" className="hidden">
 				<AuthenticityTokenInput />
