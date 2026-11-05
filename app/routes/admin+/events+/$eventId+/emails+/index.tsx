@@ -1,8 +1,7 @@
 import {
 	AuditAction,
 	AuditEntityType,
-	EmailStatus,
-	EmailTrigger,
+	type EmailStatus,
 	type Prisma,
 } from '@prisma/client'
 import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
@@ -38,6 +37,10 @@ import {
 } from '~/utils/participant-email.server'
 import { redirectWithToast } from '~/utils/toast.server'
 
+// Not Object.values(EmailStatus): runtime values from @prisma/client in the
+// component pull a module into the browser bundle that browsers can't load.
+const EMAIL_STATUSES = ['SENT', 'FAILED', 'PENDING'] as const satisfies readonly EmailStatus[]
+
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
 const DEFAULT_PAGE_SIZE = 25
 
@@ -58,8 +61,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const statusParam = url.searchParams.get('status')
 	const triggerParam = url.searchParams.get('trigger')
 	const q = url.searchParams.get('search')?.trim() ?? ''
-	const status = Object.values(EmailStatus).find(s => s === statusParam)
-	const trigger = Object.values(EmailTrigger).find(t => t === triggerParam)
+	const status = EMAIL_STATUSES.find(s => s === statusParam)
+	const trigger = EMAIL_TRIGGERS.find(t => t === triggerParam)
 	const pageSize = PAGE_SIZE_OPTIONS.includes(
 		Number(url.searchParams.get('pageSize')),
 	)
@@ -124,7 +127,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 
 	const counts = Object.fromEntries(
-		Object.values(EmailStatus).map(s => [
+		EMAIL_STATUSES.map(s => [
 			s,
 			statusCounts.find(c => c.status === s)?._count ?? 0,
 		]),
@@ -257,7 +260,7 @@ export default function EventEmailLogRoute() {
 							type: 'select',
 							options: [
 								{ value: 'all', label: 'All statuses' },
-								...Object.values(EmailStatus).map(status => ({
+								...EMAIL_STATUSES.map(status => ({
 									value: status,
 									label: status.charAt(0) + status.slice(1).toLowerCase(),
 								})),

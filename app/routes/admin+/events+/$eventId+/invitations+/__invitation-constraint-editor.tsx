@@ -1,6 +1,6 @@
 import { getFormProps, getInputProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
-import { AccessLevel, Invitation, ParticipantType } from '@prisma/client'
+import type { AccessLevel, Invitation, ParticipantType } from '@prisma/client'
 import { SerializeFrom } from '@remix-run/node'
 import { Form, useActionData, useNavigate, useOutletContext, useParams } from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
@@ -28,7 +28,9 @@ export const InvitationConstraintEditorSchema = z.object({
 	participantTypeId: z.string({
 		required_error: 'Participant Type is required',
 	}),
-	accessLevel: z.nativeEnum(AccessLevel),
+	// Not z.nativeEnum(AccessLevel): runtime values from @prisma/client pull a
+	// module into the browser bundle that browsers can't load.
+	accessLevel: z.enum(['OPEN', 'CLOSED'] satisfies [AccessLevel, AccessLevel]),
 	quota: z
 		.string()
 		.optional()
