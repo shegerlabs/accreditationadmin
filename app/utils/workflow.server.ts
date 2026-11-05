@@ -1,12 +1,15 @@
 import { Action, Participant, Step } from '@prisma/client'
 import { prisma } from '~/utils/db.server'
-import { sendEmailAzure } from './email.server'
+import { sendParticipantEmail } from './participant-email.server'
 
 export async function processParticipant(
 	participantId: string,
 	userId: string,
 	action: Action,
 	remarks?: string,
+	// Shown to the participant in the rejection email. `remarks` is internal
+	// and can name the validator, so it is never emailed.
+	participantReason?: string,
 ) {
 	const participant = await prisma.participant.findUniqueOrThrow({
 		where: { id: participantId },
@@ -18,16 +21,16 @@ export async function processParticipant(
 	// Execute action first, then log approval only if successful
 	switch (action) {
 		case Action.REJECT:
-			await handleRejection(participant, userId, remarks)
+			await handleRejection(participant, userId, participantReason)
 			break
 		case Action.APPROVE:
 			await handleApproval(participant)
 			break
 		case Action.PRINT:
-			await handlePrint(participant)
+			await handlePrint(participant, userId)
 			break
 		case Action.COLLECT:
-			await handleCollect(participant)
+			await handleCollect(participant, userId)
 			break
 		case Action.NOTIFY:
 			await handleNotify(participant)
@@ -91,7 +94,7 @@ async function handleBypass(participant: Participant & { step: Step }) {
 async function handleRejection(
 	participant: Participant & { step: Step },
 	userId: string,
-	remarks?: string,
+	participantReason?: string,
 ) {
 	// Find step marked as rejection target (where rejected participants return)
 	const rejectionTargetStep = await prisma.step.findFirst({
@@ -115,9 +118,12 @@ async function handleRejection(
 		},
 	})
 
-	if (participant.email) {
-		await sendRejectionEmail(participant.email, remarks)
-	}
+	void sendParticipantEmail({
+		participantId: participant.id,
+		trigger: 'RETURNED_FOR_CORRECTION',
+		remarks: participantReason,
+		triggeredById: userId,
+	})
 }
 
 async function handleApproval(participant: Participant & { step: Step }) {
@@ -136,7 +142,7 @@ async function handleApproval(participant: Participant & { step: Step }) {
 	})
 }
 
-async function handlePrint(participant: Participant & { step: Step }) {
+async function handlePrint(participant: Participant & { step: Step }, userId: string) {
 	if (!participant.step.nextStepId) return
 
 	const nextStep = await prisma.step.findUniqueOrThrow({
@@ -150,9 +156,15 @@ async function handlePrint(participant: Participant & { step: Step }) {
 			status: 'PRINTED',
 		},
 	})
+
+	void sendParticipantEmail({
+		participantId: participant.id,
+		trigger: 'BADGE_READY',
+		triggeredById: userId,
+	})
 }
 
-async function handleCollect(participant: Participant & { step: Step }) {
+async function handleCollect(participant: Participant & { step: Step }, userId: string) {
 	// COLLECT does NOT move to next step - participant stays in current step
 	// with COLLECTED status. Admin will later archive them.
 	await prisma.participant.update({
@@ -160,6 +172,12 @@ async function handleCollect(participant: Participant & { step: Step }) {
 		data: {
 			status: 'COLLECTED',
 		},
+	})
+
+	void sendParticipantEmail({
+		participantId: participant.id,
+		trigger: 'BADGE_COLLECTED',
+		triggeredById: userId,
 	})
 }
 
@@ -186,10 +204,6 @@ async function handleArchive(participant: Participant & { step: Step }) {
 			status: 'ARCHIVED',
 		},
 	})
-
-	if (participant.email) {
-		await sendFinalizationEmail(participant.email)
-	}
 }
 
 function getRemarksByAction(action: Action): string {
@@ -261,22 +275,4 @@ export async function reassignParticipantStep(
 	}
 
 	return matchingStep.id
-}
-
-async function sendRejectionEmail(email: string, remarks?: string) {
-	void sendEmailAzure({
-		to: email,
-		subject: 'Request Rejected',
-		plainText: 'Your request has been rejected.',
-		html: `<p>Your request has been rejected. ${remarks ? `<br><br>${remarks}` : ''}</p>`,
-	})
-}
-
-async function sendFinalizationEmail(email: string) {
-	void sendEmailAzure({
-		to: email,
-		subject: 'Request Finalized',
-		plainText: 'Your request has been finalized.',
-		html: '<p>Your request has been finalized. You can collect your badge at the registration desk.</p>',
-	})
 }

@@ -1,5 +1,6 @@
-import { json, LoaderFunctionArgs } from '@remix-run/node'
-import { Link, useLoaderData } from '@remix-run/react'
+import { AuditAction, AuditEntityType } from '@prisma/client'
+import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
+import { Form, Link, useLoaderData, useNavigation } from '@remix-run/react'
 import { format } from 'date-fns'
 import {
 	ArrowLeft,
@@ -7,6 +8,8 @@ import {
 	CircleDashedIcon,
 	ClockIcon,
 	HistoryIcon,
+	MailIcon,
+	RotateCwIcon,
 	SkipForwardIcon,
 	UserIcon,
 	XCircleIcon,
@@ -15,9 +18,15 @@ import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
 import { Separator } from '~/components/ui/separator'
+import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
+import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
+import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
+import { EMAIL_TEMPLATE_DEFAULTS } from '~/utils/participant-email'
+import { resendEmail } from '~/utils/participant-email.server'
+import { redirectWithToast } from '~/utils/toast.server'
 
 const SYSTEM_STEPS = ['Request Received', 'Review Request']
 
@@ -105,6 +114,20 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 					},
 				},
 			},
+			emailLogs: {
+				orderBy: { createdAt: 'desc' },
+				select: {
+					id: true,
+					trigger: true,
+					recipient: true,
+					subject: true,
+					body: true,
+					status: true,
+					error: true,
+					createdAt: true,
+					triggeredBy: { select: { username: true } },
+				},
+			},
 		},
 	})
 
@@ -113,8 +136,49 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	return json({ participant })
 }
 
+export async function action({ params, request }: ActionFunctionArgs) {
+	const user = await requireUserWithRoles(request, ['admin', 'tenant'])
+	const formData = await request.formData()
+	await validateCSRF(formData, request.headers)
+
+	const emailLogId = formData.get('emailLogId')
+	invariantResponse(typeof emailLogId === 'string', 'Email not found', { status: 400 })
+	const emailLog = await prisma.emailLog.findFirst({
+		where: { id: emailLogId, participantId: params.participantId },
+		select: { id: true, participant: { select: { tenantId: true } } },
+	})
+	invariantResponse(emailLog, 'Email not found', { status: 404 })
+
+	const resent = await resendEmail(emailLog.id, user.id)
+	await auditRequest({
+		request,
+		action: AuditAction.OTHER,
+		entityType: AuditEntityType.PARTICIPANT,
+		entityId: params.participantId,
+		description: `Resent "${resent.subject}" to ${resent.recipient}`,
+		userId: user.id,
+		tenantId: emailLog.participant.tenantId,
+		metadata: { emailLogId: emailLog.id, trigger: resent.trigger },
+	})
+
+	return redirectWithToast(`/admin/participants/${params.participantId}/history`, {
+		type: 'success',
+		title: 'Email resent',
+		description: `Sending to ${resent.recipient}. The status below updates when you refresh.`,
+	})
+}
+
+const emailStatusStyles: Record<string, string> = {
+	SENT: 'bg-green-100 text-green-800',
+	FAILED: 'bg-red-100 text-red-800',
+	PENDING: 'bg-gray-100 text-gray-800',
+}
+
 export default function ParticipantHistoryRoute() {
 	const { participant } = useLoaderData<typeof loader>()
+	const navigation = useNavigation()
+	const resendingId =
+		navigation.state !== 'idle' ? navigation.formData?.get('emailLogId') : null
 
 	const getActionLabel = (action: string) => {
 		const labels: Record<string, string> = {
@@ -402,6 +466,61 @@ export default function ParticipantHistoryRoute() {
 								)}
 							</div>
 						</div>
+					)}
+				</CardContent>
+			</Card>
+
+			<Card className="mt-6">
+				<CardHeader>
+					<CardTitle className="flex items-center gap-2">
+						<MailIcon className="h-5 w-5" />
+						Emails
+					</CardTitle>
+				</CardHeader>
+				<CardContent>
+					{participant.emailLogs.length === 0 ? (
+						<p className="py-6 text-center text-sm text-muted-foreground">
+							No emails have been sent for this request yet.
+						</p>
+					) : (
+						<ul className="divide-y">
+							{participant.emailLogs.map(email => (
+								<li key={email.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
+									<div className="min-w-0 flex-1">
+										<div className="flex flex-wrap items-center gap-2">
+											<span className="font-medium">
+												{EMAIL_TEMPLATE_DEFAULTS[email.trigger].label}
+											</span>
+											<Badge className={emailStatusStyles[email.status]}>{email.status}</Badge>
+										</div>
+										<p className="mt-1 break-all text-sm text-muted-foreground">
+											To {email.recipient} •{' '}
+											{format(new Date(email.createdAt), 'MMM d, yyyy HH:mm')}
+											{email.triggeredBy ? ` • by ${email.triggeredBy.username}` : ''}
+										</p>
+										{email.status === 'FAILED' && email.error && (
+											<p className="mt-1 break-all text-sm text-destructive">{email.error}</p>
+										)}
+										<details className="mt-2 text-sm">
+											<summary className="cursor-pointer text-muted-foreground">
+												{email.subject}
+											</summary>
+											<pre className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-3 font-sans">
+												{email.body}
+											</pre>
+										</details>
+									</div>
+									<Form method="POST" className="shrink-0">
+										<AuthenticityTokenInput />
+										<input type="hidden" name="emailLogId" value={email.id} />
+										<Button type="submit" variant="outline" size="sm" disabled={resendingId === email.id}>
+											<RotateCwIcon className="mr-2 h-4 w-4" />
+											{resendingId === email.id ? 'Resending...' : 'Resend'}
+										</Button>
+									</Form>
+								</li>
+							))}
+						</ul>
 					)}
 				</CardContent>
 			</Card>

@@ -116,7 +116,13 @@ export async function action({ request }: ActionFunctionArgs) {
 	const rejectionTargetStep = participant.step.workflow.steps[0]
 
 	const remarks = `Request Rejected: ${submission.value.reason}`
-	await processParticipant(participant.id, user.id, Action.REJECT, remarks)
+	await processParticipant(
+		participant.id,
+		user.id,
+		Action.REJECT,
+		remarks,
+		submission.value.reason,
+	)
 
 	await auditRequest({
 		request,

@@ -11,6 +11,7 @@ import {
 	Globe,
 	Lock,
 	Mail,
+	MailCheck,
 	RefreshCw,
 	Trash2,
 	Users,
@@ -68,6 +69,7 @@ export default function EventDetailsRoute() {
 		{ name: 'Workflows', path: 'workflows', icon: Workflow },
 		{ name: 'Invitations', path: 'invitations', icon: Mail },
 		{ name: 'Templates', path: 'templates', icon: FileImage },
+		{ name: 'Emails', path: 'emails', icon: MailCheck },
 		{ name: 'Access', path: 'access', icon: Users },
 	]
 
