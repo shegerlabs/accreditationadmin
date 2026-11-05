@@ -1,4 +1,10 @@
-import { Action, Participant, Step } from '@prisma/client'
+import {
+	Action,
+	type Participant,
+	type Prisma,
+	type Step,
+} from '@prisma/client'
+import { json } from '@remix-run/node'
 import { prisma } from '~/utils/db.server'
 import { sendParticipantEmail } from './participant-email.server'
 
@@ -18,56 +24,77 @@ export async function processParticipant(
 		},
 	})
 
-	// Execute action first, then log approval only if successful
+	let outcome: Outcome
 	switch (action) {
 		case Action.REJECT:
-			await handleRejection(participant, userId, participantReason)
+			outcome = await handleRejection(participant, userId, participantReason)
 			break
 		case Action.APPROVE:
-			await handleApproval(participant)
+			outcome = await handleApproval(participant)
 			break
 		case Action.PRINT:
-			await handlePrint(participant, userId)
+			outcome = await handlePrint(participant, userId)
 			break
 		case Action.COLLECT:
-			await handleCollect(participant, userId)
+			outcome = handleCollect(participant, userId)
 			break
 		case Action.NOTIFY:
-			await handleNotify(participant)
+			outcome = await handleNotify(participant)
 			break
 		case Action.ARCHIVE:
-			await handleArchive(participant)
+			outcome = handleArchive()
 			break
 		case Action.BYPASS:
-			await handleBypass(participant)
+			outcome = await handleBypass(participant)
 			break
 		default:
 			throw new Error(`Unsupported action: ${action}`)
 	}
 
-	// Log approval only after action succeeds
-	await logApproval(participant, userId, action, remarks)
-}
-
-async function logApproval(
-	participant: Participant & { step: Step },
-	userId: string,
-	action: Action,
-	remarks?: string,
-) {
-	await prisma.approval.create({
-		data: {
-			participantId: participant.id,
-			stepId: participant.step.id,
-			userId: userId,
-			action: action,
-			result: action === Action.REJECT ? 'FAILURE' : 'SUCCESS',
-			remarks: remarks ?? getRemarksByAction(action),
-		},
+	await prisma.$transaction(async tx => {
+		if (outcome.data) {
+			// Only update if nobody moved the participant since we read it.
+			// Without this, two users acting at once (or one on a stale page)
+			// both advance the participant and it skips a step.
+			const { count } = await tx.participant.updateMany({
+				where: {
+					id: participant.id,
+					stepId: participant.stepId,
+					status: participant.status,
+				},
+				data: outcome.data,
+			})
+			if (count === 0) {
+				throw json(PARTICIPANT_CONFLICT_MESSAGE, { status: 409 })
+			}
+		}
+		await tx.approval.create({
+			data: {
+				participantId: participant.id,
+				stepId: participant.step.id,
+				userId,
+				action,
+				result: action === Action.REJECT ? 'FAILURE' : 'SUCCESS',
+				remarks: remarks ?? getRemarksByAction(action),
+			},
+		})
 	})
+
+	if (outcome.email) void sendParticipantEmail(outcome.email)
 }
 
-async function handleBypass(participant: Participant & { step: Step }) {
+export const PARTICIPANT_CONFLICT_MESSAGE =
+	'Someone else has already processed this participant. Go back and refresh the list to see where it is now.'
+
+type Outcome = {
+	// null when the action leaves the participant unchanged (e.g. approving the last step)
+	data: (Prisma.ParticipantUpdateManyMutationInput & { stepId?: string }) | null
+	email?: Parameters<typeof sendParticipantEmail>[0]
+}
+
+async function handleBypass(
+	participant: Participant & { step: Step },
+): Promise<Outcome> {
 	// Find step marked as bypass target (e.g., Badge Print step)
 	const bypassTargetStep = await prisma.step.findFirst({
 		where: {
@@ -82,20 +109,14 @@ async function handleBypass(participant: Participant & { step: Step }) {
 		)
 	}
 
-	await prisma.participant.update({
-		where: { id: participant.id },
-		data: {
-			stepId: bypassTargetStep.id,
-			status: 'BYPASSED',
-		},
-	})
+	return { data: { stepId: bypassTargetStep.id, status: 'BYPASSED' } }
 }
 
 async function handleRejection(
 	participant: Participant & { step: Step },
 	userId: string,
 	participantReason?: string,
-) {
+): Promise<Outcome> {
 	// Find step marked as rejection target (where rejected participants return)
 	const rejectionTargetStep = await prisma.step.findFirst({
 		where: {
@@ -110,100 +131,64 @@ async function handleRejection(
 		)
 	}
 
-	await prisma.participant.update({
-		where: { id: participant.id },
-		data: {
-			stepId: rejectionTargetStep.id,
-			status: 'REJECTED',
+	return {
+		data: { stepId: rejectionTargetStep.id, status: 'REJECTED' },
+		email: {
+			participantId: participant.id,
+			trigger: 'RETURNED_FOR_CORRECTION',
+			remarks: participantReason,
+			triggeredById: userId,
 		},
-	})
-
-	void sendParticipantEmail({
-		participantId: participant.id,
-		trigger: 'RETURNED_FOR_CORRECTION',
-		remarks: participantReason,
-		triggeredById: userId,
-	})
+	}
 }
 
-async function handleApproval(participant: Participant & { step: Step }) {
-	if (!participant.step.nextStepId) return
-
-	const nextStep = await prisma.step.findUniqueOrThrow({
-		where: { id: participant.step.nextStepId },
-	})
-
-	await prisma.participant.update({
-		where: { id: participant.id },
-		data: {
-			stepId: nextStep.id,
-			status: 'INPROGRESS',
-		},
-	})
+async function handleApproval(
+	participant: Participant & { step: Step },
+): Promise<Outcome> {
+	if (!participant.step.nextStepId) return { data: null }
+	return { data: { stepId: participant.step.nextStepId, status: 'INPROGRESS' } }
 }
 
-async function handlePrint(participant: Participant & { step: Step }, userId: string) {
-	if (!participant.step.nextStepId) return
-
-	const nextStep = await prisma.step.findUniqueOrThrow({
-		where: { id: participant.step.nextStepId },
-	})
-
-	await prisma.participant.update({
-		where: { id: participant.id },
-		data: {
-			stepId: nextStep.id,
-			status: 'PRINTED',
+async function handlePrint(
+	participant: Participant & { step: Step },
+	userId: string,
+): Promise<Outcome> {
+	if (!participant.step.nextStepId) return { data: null }
+	return {
+		data: { stepId: participant.step.nextStepId, status: 'PRINTED' },
+		email: {
+			participantId: participant.id,
+			trigger: 'BADGE_READY',
+			triggeredById: userId,
 		},
-	})
-
-	void sendParticipantEmail({
-		participantId: participant.id,
-		trigger: 'BADGE_READY',
-		triggeredById: userId,
-	})
+	}
 }
 
-async function handleCollect(participant: Participant & { step: Step }, userId: string) {
+function handleCollect(
+	participant: Participant & { step: Step },
+	userId: string,
+): Outcome {
 	// COLLECT does NOT move to next step - participant stays in current step
 	// with COLLECTED status. Admin will later archive them.
-	await prisma.participant.update({
-		where: { id: participant.id },
-		data: {
-			status: 'COLLECTED',
+	return {
+		data: { status: 'COLLECTED' },
+		email: {
+			participantId: participant.id,
+			trigger: 'BADGE_COLLECTED',
+			triggeredById: userId,
 		},
-	})
-
-	void sendParticipantEmail({
-		participantId: participant.id,
-		trigger: 'BADGE_COLLECTED',
-		triggeredById: userId,
-	})
+	}
 }
 
-async function handleNotify(participant: Participant & { step: Step }) {
-	if (!participant.step.nextStepId) return
-
-	const nextStep = await prisma.step.findUniqueOrThrow({
-		where: { id: participant.step.nextStepId },
-	})
-
-	await prisma.participant.update({
-		where: { id: participant.id },
-		data: {
-			stepId: nextStep.id,
-			status: 'NOTIFIED',
-		},
-	})
+async function handleNotify(
+	participant: Participant & { step: Step },
+): Promise<Outcome> {
+	if (!participant.step.nextStepId) return { data: null }
+	return { data: { stepId: participant.step.nextStepId, status: 'NOTIFIED' } }
 }
 
-async function handleArchive(participant: Participant & { step: Step }) {
-	await prisma.participant.update({
-		where: { id: participant.id },
-		data: {
-			status: 'ARCHIVED',
-		},
-	})
+function handleArchive(): Outcome {
+	return { data: { status: 'ARCHIVED' } }
 }
 
 function getRemarksByAction(action: Action): string {
