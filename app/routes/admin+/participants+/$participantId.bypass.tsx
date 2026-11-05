@@ -8,6 +8,7 @@ import {
 	useLoaderData,
 	useNavigate,
 	useParams,
+	useRouteLoaderData,
 } from '@remix-run/react'
 import { SkipForward } from 'lucide-react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
@@ -32,9 +33,11 @@ import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
 import { processParticipant } from '~/utils/workflow.server'
+import { type loader as participantLoader } from './$participantId'
 
 const BypassSchema = z.object({
 	id: z.string(),
+	stepId: z.string().optional(),
 })
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -107,7 +110,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const bypassTargetStep = participant.step.workflow.steps[0]
 
-	await processParticipant(participantId, user.id, Action.BYPASS)
+	await processParticipant(participantId, user.id, Action.BYPASS, undefined, {
+		expectedStepId: submission.value.stepId,
+	})
 
 	await auditRequest({
 		request,
@@ -155,6 +160,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function BypassParticipantDialog() {
 	const { participant } = useLoaderData<typeof loader>()
+	// The parent page's loader doesn't rerun when this dialog opens, so this is
+	// the step the user actually reviewed.
+	const reviewedStepId = useRouteLoaderData<typeof participantLoader>(
+		'routes/admin+/participants+/$participantId',
+	)?.stepId
 	const navigate = useNavigate()
 	const params = useParams()
 	const actionData = useActionData<typeof action>()
@@ -170,6 +180,7 @@ export default function BypassParticipantDialog() {
 		shouldRevalidate: 'onInput',
 		defaultValue: {
 			id: participant.id,
+			stepId: reviewedStepId,
 		},
 	})
 
@@ -204,6 +215,7 @@ export default function BypassParticipantDialog() {
 					<AuthenticityTokenInput />
 					<HoneypotInputs />
 					<InputField meta={fields.id} type="hidden" />
+					<InputField meta={fields.stepId} type="hidden" />
 					<DialogFooter className="gap-2 sm:gap-0">
 						<Button type="button" variant="outline" onClick={handleCancel}>
 							Cancel

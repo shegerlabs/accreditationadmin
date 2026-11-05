@@ -41,6 +41,7 @@ import { processParticipant } from '~/utils/workflow.server'
 
 export const ParticipantCollectSchema = z.object({
 	id: z.string(),
+	stepId: z.string().optional(),
 	collectedBy: z
 		.string({ required_error: 'Name of person collecting is required' })
 		.min(2, 'Name must be at least 2 characters'),
@@ -132,7 +133,9 @@ export async function action({ request }: ActionFunctionArgs) {
 	})
 
 	const remarks = `Badge collected by ${collectedBy}${collectedByPhone ? ` (${collectedByPhone})` : ''}${collectionNotes ? ` - ${collectionNotes}` : ''}`
-	await processParticipant(participant.id, user.id, Action.COLLECT, remarks)
+	await processParticipant(participant.id, user.id, Action.COLLECT, remarks, {
+		expectedStepId: submission.value.stepId,
+	})
 
 	// Log collect action
 	await auditRequest({
@@ -205,6 +208,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		},
 		select: {
 			id: true,
+			stepId: true,
 			firstName: true,
 			familyName: true,
 			organization: true,
@@ -236,6 +240,7 @@ export default function CollectParticipantDialog() {
 		shouldRevalidate: 'onInput',
 		defaultValue: {
 			id: participant.id,
+			stepId: participant.stepId,
 			collectedBy: '',
 			collectedByPhone: '',
 			collectionNotes: '',
@@ -281,6 +286,7 @@ export default function CollectParticipantDialog() {
 					<AuthenticityTokenInput />
 					<HoneypotInputs />
 					<InputField meta={fields.id} type="hidden" />
+					<InputField meta={fields.stepId} type="hidden" />
 
 					<div className="grid gap-4 py-4">
 						<Field>

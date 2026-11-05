@@ -42,6 +42,7 @@ import { processParticipant } from '~/utils/workflow.server'
 
 export const ParticipantPrintSchema = z.object({
 	id: z.string().optional(),
+	stepId: z.string().optional(),
 })
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -108,7 +109,9 @@ export async function action({ request }: ActionFunctionArgs) {
 	})
 
 	const remarks = `Badge Printed`
-	await processParticipant(participant.id, user.id, Action.PRINT, remarks)
+	await processParticipant(participant.id, user.id, Action.PRINT, remarks, {
+		expectedStepId: submission.value.stepId,
+	})
 
 	await auditRequest({
 		request,
@@ -250,6 +253,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const photo = participant?.documents.find(doc => doc.documentType === 'PHOTO')
 
 	return json({
+		stepId: participant.stepId,
 		general: generalInfo,
 		professional: professionalInfo,
 		photo,
@@ -263,6 +267,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export default function PrinterBadgeDialog() {
 	const params = useParams()
 	const actionData = useActionData<typeof action>()
+	const { stepId } = useLoaderData<typeof loader>()
 	const schema = ParticipantPrintSchema
 	const [form, fields] = useForm({
 		id: 'print-confirmation-form',
@@ -275,6 +280,7 @@ export default function PrinterBadgeDialog() {
 		shouldRevalidate: 'onInput',
 		defaultValue: {
 			id: params.participantId,
+			stepId,
 		},
 	})
 	const {
@@ -390,6 +396,7 @@ export default function PrinterBadgeDialog() {
 						<AuthenticityTokenInput />
 						<HoneypotInputs />
 						<InputField meta={fields.id} type="hidden" />
+						<InputField meta={fields.stepId} type="hidden" />
 
 						<Button
 							type="submit"

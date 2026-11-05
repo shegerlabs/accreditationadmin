@@ -225,6 +225,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		meetings,
 		approvals,
 		status: participant.status,
+		stepId: participant.stepId,
 		nextStep: {
 			name: participant.step.name,
 			action: participant.step.action,

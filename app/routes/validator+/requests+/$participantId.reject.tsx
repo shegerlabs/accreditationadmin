@@ -9,6 +9,7 @@ import {
 	useNavigate,
 	useParams,
 	useSearchParams,
+	useRouteLoaderData,
 } from '@remix-run/react'
 import { XCircle } from 'lucide-react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
@@ -38,9 +39,11 @@ import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
 import { processParticipant } from '~/utils/workflow.server'
+import { type loader as participantLoader } from './$participantId'
 
 export const ParticipantRejectionSchema = z.object({
 	id: z.string().optional(),
+	stepId: z.string().optional(),
 	reason: z.string({ required_error: 'Reason for rejection is required' }),
 })
 
@@ -121,7 +124,10 @@ export async function action({ request }: ActionFunctionArgs) {
 		user.id,
 		Action.REJECT,
 		remarks,
-		submission.value.reason,
+		{
+			participantReason: submission.value.reason,
+			expectedStepId: submission.value.stepId,
+		},
 	)
 
 	await auditRequest({
@@ -201,6 +207,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function RejectParticipantDialog() {
 	const { participant } = useLoaderData<typeof loader>()
+	// The parent page's loader doesn't rerun when this dialog opens, so this is
+	// the step the user actually reviewed.
+	const reviewedStepId = useRouteLoaderData<typeof participantLoader>(
+		'routes/validator+/requests+/$participantId',
+	)?.stepId
 	const navigate = useNavigate()
 	const params = useParams()
 	const [searchParams] = useSearchParams()
@@ -218,6 +229,7 @@ export default function RejectParticipantDialog() {
 		shouldRevalidate: 'onInput',
 		defaultValue: {
 			id: participant.id,
+			stepId: reviewedStepId,
 		},
 	})
 
@@ -252,6 +264,7 @@ export default function RejectParticipantDialog() {
 					<AuthenticityTokenInput />
 					<HoneypotInputs />
 					<InputField meta={fields.id} type="hidden" />
+					<InputField meta={fields.stepId} type="hidden" />
 					<div className="py-4">
 						<Field>
 							<Label htmlFor={fields.reason.id}>Reason for Rejection</Label>

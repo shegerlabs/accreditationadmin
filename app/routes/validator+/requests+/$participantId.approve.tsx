@@ -9,6 +9,7 @@ import {
 	useNavigate,
 	useParams,
 	useSearchParams,
+	useRouteLoaderData,
 } from '@remix-run/react'
 import { CheckCircle } from 'lucide-react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
@@ -36,9 +37,11 @@ import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
 import { processParticipant } from '~/utils/workflow.server'
+import { type loader as participantLoader } from './$participantId'
 
 export const ParticipantApprovalSchema = z.object({
 	id: z.string().optional(),
+	stepId: z.string().optional(),
 })
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -116,7 +119,9 @@ export async function action({ request }: ActionFunctionArgs) {
 		: null
 
 	const remarks = `Request Approved, sent to next stage for processing`
-	await processParticipant(participant.id, user.id, Action.APPROVE, remarks)
+	await processParticipant(participant.id, user.id, Action.APPROVE, remarks, {
+		expectedStepId: submission.value.stepId,
+	})
 
 	await auditRequest({
 		request,
@@ -196,6 +201,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function ApproveParticipantDialog() {
 	const { participant } = useLoaderData<typeof loader>()
+	// The parent page's loader doesn't rerun when this dialog opens, so this is
+	// the step the user actually reviewed.
+	const reviewedStepId = useRouteLoaderData<typeof participantLoader>(
+		'routes/validator+/requests+/$participantId',
+	)?.stepId
 	const navigate = useNavigate()
 	const params = useParams()
 	const [searchParams] = useSearchParams()
@@ -213,6 +223,7 @@ export default function ApproveParticipantDialog() {
 		shouldRevalidate: 'onInput',
 		defaultValue: {
 			id: participant.id,
+			stepId: reviewedStepId,
 		},
 	})
 
@@ -247,6 +258,7 @@ export default function ApproveParticipantDialog() {
 					<AuthenticityTokenInput />
 					<HoneypotInputs />
 					<InputField meta={fields.id} type="hidden" />
+					<InputField meta={fields.stepId} type="hidden" />
 					<DialogFooter className="gap-2 sm:gap-0">
 						<Button type="button" variant="outline" onClick={handleCancel}>
 							Cancel

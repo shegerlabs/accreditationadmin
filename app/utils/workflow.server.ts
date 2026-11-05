@@ -13,16 +13,27 @@ export async function processParticipant(
 	userId: string,
 	action: Action,
 	remarks?: string,
-	// Shown to the participant in the rejection email. `remarks` is internal
-	// and can name the validator, so it is never emailed.
-	participantReason?: string,
+	options: {
+		// Shown to the participant in the rejection email. `remarks` is internal
+		// and can name the validator, so it is never emailed.
+		participantReason?: string
+		// The step the user was looking at when they decided. If the participant
+		// has moved since (someone else acted while the page was open), refuse
+		// rather than apply the decision to a step they never reviewed.
+		expectedStepId?: string
+	} = {},
 ) {
+	const { participantReason, expectedStepId } = options
 	const participant = await prisma.participant.findUniqueOrThrow({
 		where: { id: participantId },
 		include: {
 			step: true,
 		},
 	})
+
+	if (expectedStepId && expectedStepId !== participant.stepId) {
+		throw json(PARTICIPANT_CONFLICT_MESSAGE, { status: 409 })
+	}
 
 	let outcome: Outcome
 	switch (action) {

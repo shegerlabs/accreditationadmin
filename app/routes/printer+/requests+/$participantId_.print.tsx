@@ -39,6 +39,7 @@ import { processParticipant } from '~/utils/workflow.server'
 
 export const ParticipantPrintSchema = z.object({
 	id: z.string().optional(),
+	stepId: z.string().optional(),
 })
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -112,7 +113,9 @@ export async function action({ request }: ActionFunctionArgs) {
 		: null
 
 	const remarks = `Badge Printed`
-	await processParticipant(participant.id, user.id, Action.PRINT, remarks)
+	await processParticipant(participant.id, user.id, Action.PRINT, remarks, {
+		expectedStepId: submission.value.stepId,
+	})
 
 	// Log print action
 	await auditRequest({
@@ -174,6 +177,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		},
 		select: {
 			id: true,
+			stepId: true,
 			firstName: true,
 			familyName: true,
 			registrationCode: true,
@@ -203,6 +207,7 @@ export default function PrintConfirmationDialog() {
 		shouldRevalidate: 'onInput',
 		defaultValue: {
 			id: participant.id,
+			stepId: participant.stepId,
 		},
 	})
 
@@ -232,6 +237,7 @@ export default function PrintConfirmationDialog() {
 						<AuthenticityTokenInput />
 						<HoneypotInputs />
 						<InputField meta={fields.id} type="hidden" />
+						<InputField meta={fields.stepId} type="hidden" />
 
 						<Button asChild variant="outline" className="flex-1">
 							<Link to={`/printer/requests/${params.participantId}`}>

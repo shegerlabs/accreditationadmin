@@ -219,6 +219,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const canUndoBypass = participant.status === 'BYPASSED'
 
 	return json({
+		stepId: participant.stepId,
 		general: generalInfo,
 		professional: professionalInfo,
 		photo,
