@@ -9,6 +9,7 @@ import {
 	FileImage,
 	FileText,
 	Globe,
+	ListChecks,
 	Lock,
 	Mail,
 	MailCheck,
@@ -130,6 +131,15 @@ export default function EventDetailsRoute() {
 								<Link to="reopen">
 									<RefreshCw className="mr-2 h-4 w-4" />
 									Reopen
+								</Link>
+							</Button>
+						)}
+
+						{event.status !== 'COMPLETED' && (
+							<Button asChild variant="outline" size="sm">
+								<Link to={`/admin/events/${event.id}/setup`}>
+									<ListChecks className="mr-2 h-4 w-4" />
+									Set up
 								</Link>
 							</Button>
 						)}

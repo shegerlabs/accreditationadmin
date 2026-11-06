@@ -114,7 +114,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const { id: eventId, ...data } = submission.value
 
-	await prisma.event.upsert({
+	const saved = await prisma.event.upsert({
 		select: { id: true },
 		where: { id: eventId ?? '__new_event__' },
 		create: {
@@ -145,9 +145,12 @@ export async function action({ request }: ActionFunctionArgs) {
 		},
 	})
 
-	return redirectWithToast('/admin/events', {
+	// A new event has nothing configured yet, so go straight to the setup wizard.
+	return redirectWithToast(eventId ? '/admin/events' : `/admin/events/${saved.id}/setup`, {
 		type: 'success',
 		title: `Event ${eventId ? 'Updated' : 'Created'}`,
-		description: `Event ${eventId ? 'updated' : 'created'} successfully.`,
+		description: eventId
+			? 'Event updated successfully.'
+			: 'Event created. Review the defaults below to set it up.',
 	})
 }
