@@ -1,7 +1,8 @@
 // profiles/pap.ts
 // Pan-African Parliament, the only organ this deployment serves.
 //
-// The 17 participant types are the catalogue PAP supplied on 2026-11-06, plus
+// The 19 participant types are the catalogue PAP supplied on 2026-11-06 (two,
+// Parliamentary Staff and Speakers of Parliament, sent in later that day), plus
 // "Any", the catch-all quota type every tenant needs (it never gets a workflow).
 // prisma/seed.ts seeds from this profile too, so the two can't drift apart.
 
@@ -32,7 +33,14 @@ export const pap: OrganProfile = {
 	participantTypes: [
 		t('Bureau', 'Bureau', Priority.HIGH, ONE_LEVEL),
 		t('MP', 'Member of Parliament', Priority.HIGH, ONE_LEVEL),
+		t(
+			'Speakers of Parliament',
+			'Speakers of Parliament',
+			Priority.HIGH,
+			ONE_LEVEL,
+		),
 		t('PAP Staff', 'PAP Staff', Priority.MEDIUM, ONE_LEVEL),
+		t('Parliamentary Staff', 'Parliamentary Staff', Priority.MEDIUM, ONE_LEVEL),
 		t('AU Staff', 'AU Staff', Priority.MEDIUM, ONE_LEVEL),
 		t(
 			'Diplomatic Corps',
