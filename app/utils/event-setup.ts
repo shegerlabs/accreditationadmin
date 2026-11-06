@@ -10,6 +10,11 @@ import {
 
 export const SETUP_SECTIONS = [
 	{
+		key: 'types',
+		title: 'Participant types',
+		help: "Which of the tenant's participant types this event uses. The other steps and the registration form only offer these.",
+	},
+	{
 		key: 'restrictions',
 		title: 'Restrictions',
 		help: 'Quotas per delegation group. Invitations draw from these.',
@@ -43,6 +48,8 @@ export type SetupContext = {
 	participantTypes: { id: string; name: string }[]
 	/** Types that can get a workflow and a badge: everything except "Any". */
 	assignableTypeIds: string[]
+	/** The tenant's latest other event with a type list; setup starts from its list. */
+	previousEvent: { name: string; typeIds: string[] } | null
 	workflowTemplates: {
 		id: string
 		name: string
@@ -52,6 +59,8 @@ export type SetupContext = {
 	staff: { id: string; username: string; name: string; roles: string[] }[]
 	/** What the event already has. Setup never overwrites these. */
 	existing: {
+		/** The event's participant types. Empty until setup picks them. */
+		typeIds: string[]
 		restrictions: number
 		workflows: {
 			participantTypeId: string
@@ -81,6 +90,8 @@ export type SetupEmail = { enabled: boolean; subject: string; body: string }
 
 /** '' means "none" in the per-type maps and in access. */
 export type SetupPlan = {
+	/** The event's participant types, only used while the event has none yet. */
+	types: string[]
 	restrictions: SetupRestriction[]
 	/** participantTypeId -> workflowTemplateId, only for types without a workflow yet. */
 	workflows: Record<string, string>
@@ -91,12 +102,31 @@ export type SetupPlan = {
 	access: { userId: string; stepName: string }[]
 }
 
+/** The event's participant types once setup runs: the saved list, or the one being picked. */
+export function eventTypeIds(ctx: SetupContext, plan: SetupPlan) {
+	return new Set(
+		ctx.existing.typeIds.length > 0 ? ctx.existing.typeIds : plan.types,
+	)
+}
+
+/** A per-type map (workflows, badges) narrowed to the event's types. */
+export function forEventTypes(
+	ctx: SetupContext,
+	plan: SetupPlan,
+	map: Record<string, string>,
+) {
+	const ids = eventTypeIds(ctx, plan)
+	return Object.fromEntries(Object.entries(map).filter(([id]) => ids.has(id)))
+}
+
 /** Step names a workflow will have once setup runs, keyed by participant type. */
 function effectiveWorkflows(ctx: SetupContext, plan: SetupPlan) {
 	const result = new Map<string, { name: string; role: string }[]>()
 	for (const w of ctx.existing.workflows)
 		result.set(w.participantTypeId, w.steps)
-	for (const [typeId, templateId] of Object.entries(plan.workflows)) {
+	for (const [typeId, templateId] of Object.entries(
+		forEventTypes(ctx, plan, plan.workflows),
+	)) {
 		if (!templateId || result.has(typeId)) continue
 		const template = ctx.workflowTemplates.find(t => t.id === templateId)
 		if (template) result.set(typeId, template.steps)
@@ -137,7 +167,7 @@ export function summarizePlan(ctx: SetupContext, plan: SetupPlan) {
 	const templateName = (id: string) =>
 		ctx.workflowTemplates.find(t => t.id === id)?.name ?? id
 	const byTemplate = new Map<string, number>()
-	for (const id of Object.values(plan.workflows)) {
+	for (const id of Object.values(forEventTypes(ctx, plan, plan.workflows))) {
 		if (id)
 			byTemplate.set(
 				templateName(id),
@@ -145,7 +175,9 @@ export function summarizePlan(ctx: SetupContext, plan: SetupPlan) {
 			)
 	}
 	const workflows = [...byTemplate.values()].reduce((a, b) => a + b, 0)
-	const badges = Object.values(plan.badges).filter(Boolean).length
+	const badges = Object.values(forEventTypes(ctx, plan, plan.badges)).filter(
+		Boolean,
+	).length
 	const constraints = plan.restrictions.reduce(
 		(n, r) => n + r.constraints.length,
 		0,
@@ -164,6 +196,7 @@ export function summarizePlan(ctx: SetupContext, plan: SetupPlan) {
 		`${n} ${n === 1 ? one : many}`
 
 	return {
+		types: `${plural(plan.types.length, 'type')} of ${ctx.assignableTypeIds.length}`,
 		restrictions: `${plural(plan.restrictions.length, 'restriction')}, ${plural(constraints, 'quota')}`,
 		workflows:
 			workflows === 0
@@ -194,6 +227,7 @@ export function isCustomEmail(trigger: EmailTrigger, email: SetupEmail) {
 
 /** Restrictions compare without their generated row keys. */
 function comparable(plan: SetupPlan, key: SetupSectionKey) {
+	if (key === 'types') return [...plan.types].sort()
 	if (key === 'restrictions') {
 		return plan.restrictions.map(r => ({
 			name: r.name,
@@ -225,12 +259,17 @@ export function resetSection(
 /** Why a section has nothing to do, or null when setup will write to it. */
 export function sectionSkipReason(ctx: SetupContext, key: SetupSectionKey) {
 	const { existing } = ctx
+	if (key === 'types' && existing.typeIds.length > 0) {
+		return `This event already uses ${existing.typeIds.length} participant type${existing.typeIds.length === 1 ? '' : 's'}.`
+	}
 	if (key === 'restrictions' && existing.restrictions > 0) {
 		return `This event already has ${existing.restrictions} restriction${existing.restrictions === 1 ? '' : 's'}. Manage them on the Restrictions tab.`
 	}
+	const typeIds =
+		existing.typeIds.length > 0 ? existing.typeIds : ctx.assignableTypeIds
 	if (
 		key === 'workflows' &&
-		ctx.assignableTypeIds.every(id =>
+		typeIds.every(id =>
 			existing.workflows.some(w => w.participantTypeId === id),
 		)
 	) {
@@ -238,7 +277,7 @@ export function sectionSkipReason(ctx: SetupContext, key: SetupSectionKey) {
 	}
 	if (
 		key === 'badges' &&
-		ctx.assignableTypeIds.every(id => existing.badgeTypeIds.includes(id))
+		typeIds.every(id => existing.badgeTypeIds.includes(id))
 	) {
 		return 'Every participant type already has a badge template.'
 	}
@@ -252,4 +291,41 @@ export function sectionSkipReason(ctx: SetupContext, key: SetupSectionKey) {
 		return 'This tenant has no validator, printer or dispatcher accounts yet.'
 	}
 	return null
+}
+
+/** Plan mistakes that would stop setup, shown on the Confirm step and checked again on the server. */
+export function planProblems(
+	ctx: SetupContext,
+	plan: Pick<SetupPlan, 'types'> & {
+		restrictions: {
+			name: string
+			constraints: { name: string; participantTypeId: string }[]
+		}[]
+	},
+) {
+	const problems: string[] = []
+	if (ctx.existing.typeIds.length === 0 && plan.types.length === 0) {
+		problems.push('Pick at least one participant type for this event.')
+	}
+	const ids = new Set(
+		ctx.existing.typeIds.length > 0 ? ctx.existing.typeIds : plan.types,
+	)
+	const anyIds = new Set(
+		ctx.participantTypes
+			.filter(t => !ctx.assignableTypeIds.includes(t.id))
+			.map(t => t.id),
+	)
+	const typeName = (id: string) =>
+		ctx.participantTypes.find(t => t.id === id)?.name ?? 'an unknown type'
+	if (ctx.existing.restrictions === 0) {
+		for (const r of plan.restrictions) {
+			for (const c of r.constraints) {
+				if (!ids.has(c.participantTypeId) && !anyIds.has(c.participantTypeId))
+					problems.push(
+						`Quota "${c.name}" in ${r.name} is for ${typeName(c.participantTypeId)}, which this event doesn't use.`,
+					)
+			}
+		}
+	}
+	return problems
 }

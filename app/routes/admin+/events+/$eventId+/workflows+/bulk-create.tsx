@@ -35,14 +35,12 @@ import { AuditAction, AuditEntityType } from '@prisma/client'
 import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
+import { getEventParticipantTypes } from '~/utils/event-participant-types.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse, useIsPending } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
-import {
-	NON_WORKFLOW_PARTICIPANT_TYPES,
-	createWorkflowFromTemplate,
-} from '~/utils/workflow-clone.server'
+import { createWorkflowFromTemplate } from '~/utils/workflow-clone.server'
 
 const BulkCreateSchema = z
 	.object({
@@ -76,12 +74,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		orderBy: { name: 'asc' },
 	})
 
-	// Fetch participant types for the tenant (excluding "Any")
-	const participantTypes = await prisma.participantType.findMany({
-		where: { tenantId: event.tenantId, name: { not: 'Any' } },
-		select: { id: true, name: true },
-		orderBy: { name: 'asc' },
-	})
+	const participantTypes = await getEventParticipantTypes(eventId!)
 
 	// Get existing workflows to show which participant types already have workflows
 	const existingWorkflows = await prisma.workflow.findMany({
@@ -148,16 +141,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	// Determine which participant types to create workflows for
 	let targetParticipantTypeIds: string[]
+	const allParticipantTypes = await getEventParticipantTypes(eventId!)
 
 	if (scope === 'all') {
-		// Get all participant types for the tenant that don't already have workflows (excluding "Any")
-		const allParticipantTypes = await prisma.participantType.findMany({
-			where: {
-				tenantId: event.tenantId,
-				name: { notIn: NON_WORKFLOW_PARTICIPANT_TYPES },
-			},
-			select: { id: true },
-		})
 		const existingWorkflows = await prisma.workflow.findMany({
 			where: { eventId },
 			select: { participantTypeId: true },
@@ -167,7 +153,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			.filter(pt => !existingSet.has(pt.id))
 			.map(pt => pt.id)
 	} else {
-		targetParticipantTypeIds = selectedIds
+		targetParticipantTypeIds = selectedIds.filter(id =>
+			allParticipantTypes.some(pt => pt.id === id),
+		)
 	}
 
 	// Fetch the template with its name

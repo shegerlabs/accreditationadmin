@@ -41,6 +41,7 @@ import {
 } from '~/components/ui/select'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
+import { getEventParticipantTypes } from '~/utils/event-participant-types.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse, useIsPending } from '~/utils/misc'
@@ -126,12 +127,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const defaultBadgeTemplate = badgeTemplates.find(t => t.isDefault)
 
-	// Get all participant types for this tenant (excluding "Any")
-	const participantTypes = await prisma.participantType.findMany({
-		where: { tenantId: event.tenantId, name: { not: 'Any' } },
-		select: { id: true, name: true },
-		orderBy: { name: 'asc' },
-	})
+	const participantTypes = await getEventParticipantTypes(event.id)
 
 	// Get existing templates for this event to know which ones to skip
 	const existingTemplates = await prisma.template.findMany({
@@ -189,6 +185,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	// Determine which participant types to create templates for
 	let targetParticipantTypeIds: string[]
+	const allParticipantTypes = await getEventParticipantTypes(event.id)
 
 	if (scope === 'all') {
 		// Get all participant types that don't already have templates
@@ -200,16 +197,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			existingTemplates.map(t => t.participantTypeId),
 		)
 
-		const allParticipantTypes = await prisma.participantType.findMany({
-			where: { tenantId: event.tenantId, name: { not: 'Any' } },
-			select: { id: true },
-		})
-
 		targetParticipantTypeIds = allParticipantTypes
 			.filter(pt => !existingSet.has(pt.id))
 			.map(pt => pt.id)
 	} else {
-		targetParticipantTypeIds = selectedIds
+		targetParticipantTypeIds = selectedIds.filter(id =>
+			allParticipantTypes.some(pt => pt.id === id),
+		)
 	}
 
 	if (targetParticipantTypeIds.length === 0) {

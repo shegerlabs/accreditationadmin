@@ -445,6 +445,22 @@ async function seed(
 	})
 	console.log(`  event                    ${created.name}`)
 
+	// The new event uses every type in the profile ("Any" is a quota bucket, not a type).
+	const eventTypes = await tx.participantType.findMany({
+		where: {
+			tenantId: tenant.id,
+			name: { notIn: NON_WORKFLOW_PARTICIPANT_TYPES },
+		},
+		select: { id: true },
+	})
+	await tx.eventParticipantType.createMany({
+		data: eventTypes.map(t => ({
+			eventId: created.id,
+			participantTypeId: t.id,
+		})),
+	})
+	console.log(`  eventParticipantType     ${eventTypes.length}`)
+
 	let workflowCount = 0
 	let stepCount = 0
 	if (workflowPlan.size > 0) {

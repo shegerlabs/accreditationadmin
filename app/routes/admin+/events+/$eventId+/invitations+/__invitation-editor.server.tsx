@@ -5,6 +5,10 @@ import { z } from 'zod'
 import { auditRequest } from '~/utils/audit.server'
 import { getPasswordHash, requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
+import {
+	NOT_IN_EVENT_MESSAGE,
+	getEventParticipantTypes,
+} from '~/utils/event-participant-types.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { redirectWithToast } from '~/utils/toast.server'
@@ -187,6 +191,20 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const submission = await parseWithZod(formData, {
 		schema: InvitationEditorSchema.superRefine(async (data, ctx) => {
+			const allowed = await getEventParticipantTypes(data.eventId, {
+				includeAny: true,
+			})
+			const outside = (data.constraints ?? []).findIndex(
+				c => !allowed.some(t => t.id === c.participantTypeId),
+			)
+			if (outside !== -1) {
+				ctx.addIssue({
+					path: ['constraints', outside, 'participantTypeId'],
+					code: z.ZodIssueCode.custom,
+					message: NOT_IN_EVENT_MESSAGE,
+				})
+				return
+			}
 			// Lowercase email for consistency
 			const email = data.email ? data.email.toLowerCase() : ''
 			const invitation = await prisma.invitation.findUnique({

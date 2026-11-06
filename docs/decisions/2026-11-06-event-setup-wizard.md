@@ -7,8 +7,9 @@ Emails and Access one by one and recreating the same defaults by hand.
 
 A stepped wizard at `/admin/events/:eventId/setup` with a **receipt** panel.
 
-- Steps: Restrictions → Workflows → Badge templates → Emails → Staff access →
-  Confirm.
+- Steps: Participant types → Restrictions → Workflows → Badge templates → Emails
+  → Staff access → Confirm. (Participant types added later, see
+  `2026-11-06-event-participant-types.md`.)
 - Left: the editor for the current step. Right (sticky): a receipt of everything
   that will be created. Each section shows its summary and a status: _Not
   reviewed_, _Default_ or _Changed_. Changed sections have a **Reset to

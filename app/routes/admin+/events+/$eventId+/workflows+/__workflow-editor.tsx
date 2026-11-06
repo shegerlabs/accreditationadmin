@@ -63,7 +63,7 @@ export function WorkflowEditor({
 	templates?: SerializeFrom<Pick<WorkflowTemplate, 'id' | 'name' | 'description'>>[]
 }) {
 	const { participantTypes } = useOutletContext<{
-		participantTypes: ParticipantType[]
+		participantTypes: Pick<ParticipantType, 'id' | 'name'>[]
 	}>()
 	const actionData = useActionData<typeof action>()
 	const isPending = useIsPending()

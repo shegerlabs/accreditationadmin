@@ -422,6 +422,7 @@ model Event {
   templates    Template[]
   userAccess   UserEventAccess[]
   emailTemplates EmailTemplate[]
+  participantTypes EventParticipantType[]
 
   @@unique([tenantId, name])
   @@unique([tenantId, name, startDate, endDate])
@@ -479,8 +480,23 @@ model ParticipantType {
   participants                     Participant[]
   templates                        Template[]
   invitationConstraints            InvitationConstraint[]
+  events                           EventParticipantType[]
 
   @@unique([tenantId, name])
+}
+
+// The participant types an event uses, out of its tenant's catalogue. Workflows,
+// badge templates, quotas and the portal's registration form only offer these.
+// "Any" is a quota bucket rather than a type people register as, so it is never listed.
+model EventParticipantType {
+  eventId           String
+  event             Event           @relation(fields: [eventId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  participantTypeId String
+  participantType   ParticipantType @relation(fields: [participantTypeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdAt         DateTime        @default(now())
+
+  @@id([eventId, participantTypeId])
+  @@index([participantTypeId])
 }
 
 model Meeting {

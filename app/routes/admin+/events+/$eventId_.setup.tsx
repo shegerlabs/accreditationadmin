@@ -21,6 +21,7 @@ import { prisma } from '~/utils/db.server'
 import {
 	SETUP_SECTIONS,
 	isSectionChanged,
+	planProblems,
 	resetSection,
 	sectionSkipReason,
 	summarizePlan,
@@ -99,6 +100,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		)
 	}
 
+	const problem = planProblems(await loadSetupContext(event), parsed.data)[0]
+	if (problem) return json({ error: problem }, { status: 400 })
+
 	const result = await applySetup(parsed.data, event, user.id)
 
 	await auditRequest({
@@ -107,7 +111,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		entityType: AuditEntityType.EVENT,
 		entityId: event.id,
 		description:
-			`Ran event setup for "${event.name}": ${result.restrictions} restriction(s), ${result.constraints} quota(s), ` +
+			`Ran event setup for "${event.name}": ${result.types} participant type(s), ${result.restrictions} restriction(s), ${result.constraints} quota(s), ` +
 			`${result.workflows} workflow(s), ${result.badges} badge template(s), ${result.emails} custom email(s), ` +
 			`${result.access} access row(s)`,
 		userId: user.id,
@@ -139,6 +143,7 @@ export default function EventSetupRoute() {
 	const active = SETUP_SECTIONS.filter(s => !sectionSkipReason(ctx, s.key))
 	const changed = active.filter(s => isSectionChanged(plan, defaults, s.key))
 	const skipReason = step ? sectionSkipReason(ctx, step.key) : null
+	const problems = planProblems(ctx, plan)
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -214,6 +219,16 @@ export default function EventSetupRoute() {
 									Add or import them on the Invitations tab afterwards. They
 									draw on the restrictions created here.
 								</p>
+								{problems.length > 0 && (
+									<ul
+										role="alert"
+										className="flex flex-col gap-1 text-sm font-medium text-destructive"
+									>
+										{problems.map(p => (
+											<li key={p}>{p}</li>
+										))}
+									</ul>
+								)}
 								{actionData?.error && (
 									<p
 										role="alert"
@@ -251,7 +266,9 @@ export default function EventSetupRoute() {
 								<input type="hidden" name="plan" value={JSON.stringify(plan)} />
 								<Button
 									type="submit"
-									disabled={isPending || active.length === 0}
+									disabled={
+										isPending || active.length === 0 || problems.length > 0
+									}
 									className="active:scale-[0.97]"
 								>
 									{isPending ? 'Setting up…' : 'Set up event'}

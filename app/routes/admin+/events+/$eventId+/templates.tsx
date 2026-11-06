@@ -5,6 +5,7 @@ import { EditIcon, TrashIcon, UserIcon } from 'lucide-react'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
+import { getEventParticipantTypes } from '~/utils/event-participant-types.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 
@@ -40,14 +41,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		},
 	})
 
-	const participantTypes = await prisma.participantType.findMany({
-		where: { tenantId: event.tenantId, name: { not: 'Any' } },
-		select: {
-			id: true,
-			name: true,
-		},
-		orderBy: { name: 'asc' },
-	})
+	const participantTypes = await getEventParticipantTypes(event.id)
 
 	const badgeTemplates = await prisma.badgeTemplate.findMany({
 		where: { tenantId: event.tenantId },

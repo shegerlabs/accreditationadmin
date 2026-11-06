@@ -66,6 +66,8 @@ export async function loadSetupContext(event: {
 		badges,
 		emails,
 		accessRows,
+		eventTypes,
+		previousEvent,
 	] = await Promise.all([
 		prisma.participantType.findMany({
 			where: { tenantId: event.tenantId },
@@ -120,6 +122,23 @@ export async function loadSetupContext(event: {
 			select: { trigger: true },
 		}),
 		prisma.userEventAccess.count({ where: { eventId: event.id } }),
+		prisma.eventParticipantType.findMany({
+			where: { eventId: event.id },
+			select: { participantTypeId: true },
+		}),
+		prisma.event.findFirst({
+			where: {
+				tenantId: event.tenantId,
+				id: { not: event.id },
+				deletedAt: null,
+				participantTypes: { some: {} },
+			},
+			orderBy: { startDate: 'desc' },
+			select: {
+				name: true,
+				participantTypes: { select: { participantTypeId: true } },
+			},
+		}),
 	])
 
 	return {
@@ -128,6 +147,10 @@ export async function loadSetupContext(event: {
 		assignableTypeIds: types
 			.filter(t => !NON_WORKFLOW_PARTICIPANT_TYPES.includes(t.name))
 			.map(t => t.id),
+		previousEvent: previousEvent && {
+			name: previousEvent.name,
+			typeIds: previousEvent.participantTypes.map(t => t.participantTypeId),
+		},
 		workflowTemplates: templates.map(t => ({
 			id: t.id,
 			name: t.name,
@@ -141,6 +164,7 @@ export async function loadSetupContext(event: {
 			roles: u.roles.map(r => r.name).filter(r => STAFF_ROLES.includes(r)),
 		})),
 		existing: {
+			typeIds: eventTypes.map(t => t.participantTypeId),
 			restrictions,
 			workflows: workflows.map(w => ({
 				participantTypeId: w.participantTypeId,
@@ -162,6 +186,16 @@ export async function buildDefaultPlan(
 ): Promise<SetupPlan> {
 	const typeIdByName = new Map(ctx.participantTypes.map(t => [t.name, t.id]))
 	const typeNameById = new Map(ctx.participantTypes.map(t => [t.id, t.name]))
+
+	// The previous event's list where it has one, else every type.
+	const types =
+		ctx.existing.typeIds.length > 0
+			? []
+			: ctx.previousEvent
+				? ctx.assignableTypeIds.filter(id =>
+						ctx.previousEvent!.typeIds.includes(id),
+					)
+				: [...ctx.assignableTypeIds]
 
 	const restrictions =
 		ctx.existing.restrictions > 0
@@ -224,6 +258,7 @@ export async function buildDefaultPlan(
 	}
 
 	const plan: SetupPlan = {
+		types,
 		restrictions,
 		workflows,
 		badges,
@@ -287,6 +322,7 @@ async function defaultAccess(
 }
 
 const PlanSchema = z.object({
+	types: z.array(z.string()),
 	restrictions: z.array(
 		z.object({
 			name: z.string().trim().min(1, 'Every restriction needs a name'),
@@ -317,6 +353,7 @@ export function parsePlan(raw: unknown) {
 }
 
 export type SetupResult = {
+	types: number
 	restrictions: number
 	constraints: number
 	workflows: number
@@ -336,6 +373,7 @@ export async function applySetup(
 ): Promise<SetupResult> {
 	return prisma.$transaction(async tx => {
 		const result: SetupResult = {
+			types: 0,
 			restrictions: 0,
 			constraints: 0,
 			workflows: 0,
@@ -349,11 +387,28 @@ export async function applySetup(
 			select: { id: true, name: true },
 		})
 		const typeName = new Map(types.map(t => [t.id, t.name]))
-		const assignable = new Set(
-			types
-				.filter(t => !NON_WORKFLOW_PARTICIPANT_TYPES.includes(t.name))
-				.map(t => t.id),
-		)
+		const tenantAssignable = types
+			.filter(t => !NON_WORKFLOW_PARTICIPANT_TYPES.includes(t.name))
+			.map(t => t.id)
+
+		// Participant types: only into an event that has none. Everything
+		// below is limited to the event's types.
+		const savedTypes = await tx.eventParticipantType.findMany({
+			where: { eventId: event.id },
+			select: { participantTypeId: true },
+		})
+		let eventTypeIds = savedTypes.map(t => t.participantTypeId)
+		if (eventTypeIds.length === 0) {
+			eventTypeIds = tenantAssignable.filter(id => plan.types.includes(id))
+			await tx.eventParticipantType.createMany({
+				data: eventTypeIds.map(participantTypeId => ({
+					eventId: event.id,
+					participantTypeId,
+				})),
+			})
+			result.types = eventTypeIds.length
+		}
+		const assignable = new Set(eventTypeIds)
 
 		// Restrictions: only into an event that has none.
 		if ((await tx.restriction.count({ where: { eventId: event.id } })) === 0) {

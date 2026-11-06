@@ -5,6 +5,10 @@ import { z } from 'zod'
 import { auditRequest } from '~/utils/audit.server'
 import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
+import {
+	addEventParticipantType,
+	getWorkflowParticipantTypes,
+} from '~/utils/event-participant-types.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
@@ -90,6 +94,15 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const submission = await parseWithZod(formData, {
 		schema: WorkflowEditorSchema.superRefine(async (data, ctx) => {
+			const allowed = await getWorkflowParticipantTypes(data.eventId)
+			if (!allowed.some(t => t.id === data.participantTypeId)) {
+				ctx.addIssue({
+					path: ['participantTypeId'],
+					code: z.ZodIssueCode.custom,
+					message: 'Workflows can only be created for real participant types.',
+				})
+				return
+			}
 			const workflow = await prisma.workflow.findUnique({
 				where: {
 					tenantId_eventId_participantTypeId_name: {
@@ -159,6 +172,10 @@ export async function action({ request }: ActionFunctionArgs) {
 			name: name!,
 		},
 	})
+
+	// A workflow means the event uses this type, so badge and quota forms and
+	// the portal offer it from now on.
+	await addEventParticipantType(prisma, data.eventId, data.participantTypeId)
 
 	// Clone steps from template if templateId is provided and this is a new workflow
 	const resolvedTemplateId = templateId === '__none__' ? undefined : templateId

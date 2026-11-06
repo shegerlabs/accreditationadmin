@@ -25,6 +25,7 @@ import { SearchBar } from '~/components/search-bar'
 import { Button } from '~/components/ui/button'
 import { getPasswordHash, requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
+import { getEventParticipantTypes } from '~/utils/event-participant-types.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
@@ -94,12 +95,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		},
 	})
 
-	const participantTypes = await prisma.participantType.findMany({
-		select: {
-			id: true,
-			name: true,
-		},
-		orderBy: { name: 'asc' },
+	const participantTypes = await getEventParticipantTypes(eventId!, {
+		includeAny: true,
 	})
 
 	const accessLevels: AccessLevel[] = ['OPEN', 'CLOSED']

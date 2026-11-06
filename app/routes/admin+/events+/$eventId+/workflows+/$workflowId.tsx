@@ -2,6 +2,7 @@ import { LoaderFunctionArgs, json } from '@remix-run/node'
 import { Outlet, useLoaderData } from '@remix-run/react'
 import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
+import { getWorkflowParticipantTypes } from '~/utils/event-participant-types.server'
 import { invariantResponse } from '~/utils/misc'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -21,9 +22,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	invariantResponse(event, 'Event not found', { status: 404 })
 
-	const participantTypes = await prisma.participantType.findMany({
-		where: { tenantId: event.tenantId },
-	})
+	const participantTypes = await getWorkflowParticipantTypes(eventId!)
 
 	const roles = await prisma.role.findMany({
 		select: {

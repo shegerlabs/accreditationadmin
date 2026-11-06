@@ -399,6 +399,19 @@ async function manageWorkflow() {
 				console.log(`✅ Created workflow: ${workflow.name}`)
 			}
 
+			// The event now uses this type: put it on the event's list so badge and
+			// quota forms and the portal offer it (docs/decisions/2026-11-06-event-participant-types.md).
+			await prisma.eventParticipantType.upsert({
+				where: {
+					eventId_participantTypeId: {
+						eventId: event.id,
+						participantTypeId: participantType.id,
+					},
+				},
+				create: { eventId: event.id, participantTypeId: participantType.id },
+				update: {},
+			})
+
 			// Set up transition rules
 			console.log('🔗 Setting up transition rules...')
 

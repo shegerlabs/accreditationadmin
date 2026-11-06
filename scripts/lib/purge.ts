@@ -30,6 +30,7 @@ export const PURGED_TABLES = [
 	'participant',
 	'template',
 	'userEventAccess',
+	'eventParticipantType',
 	// Transitive: Restriction -> Constraint, Invitation -> InvitationConstraint,
 	// Workflow -> Step, Template -> Attachment, Participant -> Approval/Document.
 	'constraint',

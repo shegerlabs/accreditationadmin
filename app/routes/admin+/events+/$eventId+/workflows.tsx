@@ -4,6 +4,7 @@ import { EditIcon, List, TrashIcon, UserIcon } from 'lucide-react'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
+import { getWorkflowParticipantTypes } from '~/utils/event-participant-types.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -39,16 +40,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		},
 	})
 
-	const participantTypes = await prisma.participantType.findMany({
-		where: {
-			name: { not: 'Any' },
-		},
-		select: {
-			id: true,
-			name: true,
-		},
-		orderBy: { name: 'asc' },
-	})
+	const participantTypes = await getWorkflowParticipantTypes(eventId!)
 
 	return json({
 		status: 'idle',

@@ -6,6 +6,7 @@ import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { Badge } from '~/components/ui/badge'
 import { requireUserWithRoles } from '~/utils/auth.server'
+import { getEventParticipantTypes } from '~/utils/event-participant-types.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 
@@ -51,11 +52,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		},
 	})
 
-	const participantTypes = await prisma.participantType.findMany({
-		select: {
-			id: true,
-			name: true,
-		},
+	const participantTypes = await getEventParticipantTypes(eventId!, {
+		includeAny: true,
 	})
 
 	const accessLevels = Object.values(AccessLevel)

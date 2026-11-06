@@ -6,6 +6,10 @@ import { z } from 'zod'
 import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
+import {
+	NOT_IN_EVENT_MESSAGE,
+	isEventParticipantType,
+} from '~/utils/event-participant-types.server'
 import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import {
@@ -78,6 +82,16 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	const submission = await parseWithZod(formData, {
 		schema: TemplateEditorSchema.superRefine(async (data, ctx) => {
+			if (
+				!(await isEventParticipantType(data.eventId, data.participantTypeId))
+			) {
+				ctx.addIssue({
+					path: ['participantTypeId'],
+					code: z.ZodIssueCode.custom,
+					message: NOT_IN_EVENT_MESSAGE,
+				})
+				return
+			}
 			const participantType = await prisma.participantType.findUniqueOrThrow({
 				where: { id: data.participantTypeId },
 			})

@@ -1,6 +1,7 @@
 import { ChevronDown, Plus, X } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Button } from '~/components/ui/button'
+import { Checkbox } from '~/components/ui/checkbox'
 import { Input } from '~/components/ui/input'
 import { Label } from '~/components/ui/label'
 import {
@@ -13,6 +14,8 @@ import {
 import { Switch } from '~/components/ui/switch'
 import { Textarea } from '~/components/ui/textarea'
 import {
+	eventTypeIds,
+	forEventTypes,
 	stepsForUser,
 	workflowsWithStep,
 	type SetupContext,
@@ -75,6 +78,7 @@ export function SectionEditor({
 	section,
 	...props
 }: EditorProps & { section: SetupSectionKey }) {
+	if (section === 'types') return <TypesEditor {...props} />
 	if (section === 'restrictions') return <RestrictionsEditor {...props} />
 	if (section === 'workflows')
 		return <PerTypeEditor field="workflows" {...props} />
@@ -86,11 +90,77 @@ export function SectionEditor({
 let keySeq = 0
 const nextKey = () => `n${keySeq++}`
 
+function TypesEditor({ ctx, plan, setPlan }: EditorProps) {
+	const types = ctx.participantTypes.filter(t =>
+		ctx.assignableTypeIds.includes(t.id),
+	)
+	const selected = new Set(plan.types)
+	const setTypes = (ids: string[]) => setPlan(p => ({ ...p, types: ids }))
+	const toggle = (id: string, on: boolean) =>
+		setPlan(p => ({
+			...p,
+			types: on
+				? ctx.assignableTypeIds.filter(t => t === id || p.types.includes(t))
+				: p.types.filter(t => t !== id),
+		}))
+
+	return (
+		<div className="flex flex-col gap-3">
+			<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+				<p className="text-sm text-muted-foreground">
+					{ctx.previousEvent
+						? `Prefilled from ${ctx.previousEvent.name}.`
+						: 'All of the tenant\u2019s types are selected to start.'}{' '}
+					<span className="tabular-nums">
+						{selected.size} of {types.length}
+					</span>{' '}
+					selected.
+				</p>
+				<div className="ml-auto flex gap-1">
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						onClick={() => setTypes([...ctx.assignableTypeIds])}
+					>
+						Select all
+					</Button>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						onClick={() => setTypes([])}
+					>
+						Clear
+					</Button>
+				</div>
+			</div>
+			<ul className="grid gap-x-4 rounded-lg border p-2 sm:grid-cols-2 lg:grid-cols-3">
+				{types.map(t => (
+					<li key={t.id}>
+						<label className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50">
+							<Checkbox
+								checked={selected.has(t.id)}
+								onCheckedChange={v => toggle(t.id, v === true)}
+							/>
+							<span className="truncate">{t.name}</span>
+						</label>
+					</li>
+				))}
+			</ul>
+			<p className="text-xs text-muted-foreground">
+				Quotas can also use &ldquo;Any&rdquo;, which covers every type selected
+				here.
+			</p>
+		</div>
+	)
+}
+
 function RestrictionsEditor({ ctx, plan, setPlan }: EditorProps) {
-	const typeOptions = ctx.participantTypes.map(t => ({
-		value: t.id,
-		label: t.name,
-	}))
+	const inEvent = eventTypeIds(ctx, plan)
+	const typeOptions = ctx.participantTypes
+		.filter(t => inEvent.has(t.id) || !ctx.assignableTypeIds.includes(t.id))
+		.map(t => ({ value: t.id, label: t.name }))
 	const update = (
 		rKey: string,
 		fn: (r: SetupRestriction) => SetupRestriction,
@@ -169,7 +239,12 @@ function RestrictionsEditor({ ctx, plan, setPlan }: EditorProps) {
 								/>
 								<Pick
 									label="Participant type"
-									value={c.participantTypeId}
+									value={
+										typeOptions.some(o => o.value === c.participantTypeId)
+											? c.participantTypeId
+											: undefined
+									}
+									placeholder="Not in this event"
 									options={typeOptions}
 									onChange={v =>
 										updateConstraint(r.key, c.key, { participantTypeId: v })
@@ -234,7 +309,7 @@ function RestrictionsEditor({ ctx, plan, setPlan }: EditorProps) {
 										{
 											key: nextKey(),
 											name: 'New quota',
-											participantTypeId: ctx.participantTypes[0]?.id ?? '',
+											participantTypeId: typeOptions[0]?.value ?? '',
 											accessLevel: 'OPEN',
 											quota: 0,
 										},
@@ -293,10 +368,10 @@ function PerTypeEditor({
 		),
 		{ value: '', label: field === 'workflows' ? 'No workflow' : 'No badge' },
 	]
-	const typeIds = Object.keys(plan[field])
+	const typeIds = Object.keys(forEventTypes(ctx, plan, plan[field]))
 	const types = ctx.participantTypes.filter(t => typeIds.includes(t.id))
-	const skipped = ctx.assignableTypeIds.length - types.length
-	const values = Object.values(plan[field])
+	const skipped = eventTypeIds(ctx, plan).size - types.length
+	const values = typeIds.map(id => plan[field][id])
 	const uniform = values.every(v => v === values[0]) ? values[0] : undefined
 
 	return (
@@ -313,9 +388,10 @@ function PerTypeEditor({
 					onChange={v =>
 						setPlan(p => ({
 							...p,
-							[field]: Object.fromEntries(
-								Object.keys(p[field]).map(k => [k, v]),
-							),
+							[field]: {
+								...p[field],
+								...Object.fromEntries(typeIds.map(k => [k, v])),
+							},
 						}))
 					}
 					className="w-full bg-background"
