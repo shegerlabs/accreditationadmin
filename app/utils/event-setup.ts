@@ -291,6 +291,61 @@ export function stepsForUser(
 	return [...names]
 }
 
+const LEVELS = ['first', 'second', 'third'] as const
+
+/**
+ * The step to prefill for a staff member. An account that names a validation
+ * level ("firstvalidator", "secondvalidator") gets that level, or none when
+ * the workflows don't have it, so a second validator has no access on one-level
+ * workflows. Anyone else gets the only step their role works on, else none.
+ */
+export function suggestStep(
+	user: SetupContext['staff'][number],
+	available: string[],
+) {
+	// A rejection or bypass step is where participants are sent, not a job.
+	const work = available.filter(s => !/^(reject|bypass)/i.test(s))
+	const levelled = work.filter(s =>
+		LEVELS.some(l => s.toLowerCase().startsWith(l)),
+	)
+	const who = `${user.username} ${user.name}`.toLowerCase()
+	const level = LEVELS.find((l, i) =>
+		new RegExp(`${l}|(^|\\D)${i + 1}(\\D|$)`).test(who),
+	)
+	if (level && levelled.length > 0)
+		return levelled.find(s => s.toLowerCase().startsWith(level)) ?? ''
+	return work.length === 1 ? work[0]! : ''
+}
+
+/**
+ * Re-prefill access after the workflows or types change. A step the admin
+ * picked stays while it still exists; prefilled, stale and (while creating)
+ * empty rows get the new suggestion. In edit mode an empty row is a saved
+ * "no access", so it is left alone.
+ */
+export function refreshAccess(
+	ctx: SetupContext,
+	prev: SetupPlan,
+	next: SetupPlan,
+): SetupPlan {
+	if (prev.workflows === next.workflows && prev.types === next.types)
+		return next
+	return {
+		...next,
+		access: next.access.map(a => {
+			const user = ctx.staff.find(u => u.id === a.userId)
+			if (!user) return a
+			const available = stepsForUser(ctx, next, a.userId)
+			const wasSuggested =
+				a.stepName === suggestStep(user, stepsForUser(ctx, prev, a.userId))
+			const keep = a.stepName
+				? available.includes(a.stepName) && !wasSuggested
+				: ctx.mode === 'edit'
+			return keep ? a : { ...a, stepName: suggestStep(user, available) }
+		}),
+	}
+}
+
 /** How many workflows contain a step of this name, i.e. how many access rows it becomes. */
 export function workflowsWithStep(
 	ctx: SetupContext,

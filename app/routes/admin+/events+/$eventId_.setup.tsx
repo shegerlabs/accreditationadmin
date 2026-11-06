@@ -21,6 +21,7 @@ import {
 	isSectionChanged,
 	summarizeEdit,
 	planProblems,
+	refreshAccess,
 	resetSection,
 	sectionSkipReason,
 	summarizePlan,
@@ -173,7 +174,10 @@ export default function EventSetupRoute() {
 	const { ctx, defaults, version } = useLoaderData<typeof loader>()
 	const editing = ctx.mode === 'edit'
 	const actionData = useActionData<typeof action>()
-	const [plan, setPlan] = useState<SetupPlan>(defaults)
+	const [plan, setPlanState] = useState<SetupPlan>(defaults)
+	// Staff access follows the workflows: re-prefill it when they change.
+	const setPlan = (fn: (p: SetupPlan) => SetupPlan) =>
+		setPlanState(p => refreshAccess(ctx, p, fn(p)))
 	const [i, setI] = useState(0)
 	const [seen, setSeen] = useState(0)
 	const isPending = useIsPending()

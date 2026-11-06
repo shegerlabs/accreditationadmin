@@ -13,6 +13,7 @@ import {
 	type SetupPlan,
 	isCustomEmail,
 	stepsForUser,
+	suggestStep,
 } from './event-setup'
 import {
 	EMAIL_TEMPLATE_DEFAULTS,
@@ -400,8 +401,8 @@ export async function buildDefaultPlan(
 
 /**
  * The step each user worked on in the tenant's previous event. Without one, the
- * only step for the user's role in these workflows; validators and reviewers have
- * several, so they start with none rather than a guess.
+ * only step for the user's role in these workflows, or the validation level
+ * their account names (see suggestStep).
  */
 async function defaultAccess(
 	ctx: SetupContext,
@@ -443,10 +444,7 @@ async function defaultAccess(
 		const remembered = previousStep.get(user.id)
 		if (remembered && available.includes(remembered))
 			return { userId: user.id, stepName: remembered }
-		return {
-			userId: user.id,
-			stepName: available.length === 1 ? available[0]! : '',
-		}
+		return { userId: user.id, stepName: suggestStep(user, available) }
 	})
 }
 

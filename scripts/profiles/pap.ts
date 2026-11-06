@@ -8,7 +8,6 @@
 import { Priority } from '@prisma/client'
 import { participantType, type OrganProfile } from './types.js'
 
-const TWO_LEVEL = 'Two Levels Approval'
 const ONE_LEVEL = 'One Level Approval'
 
 /**
@@ -31,17 +30,17 @@ export const pap: OrganProfile = {
 		subscriptionPlan: 'enterprise',
 	},
 	participantTypes: [
-		t('Bureau', 'Bureau', Priority.HIGH, TWO_LEVEL),
-		t('MP', 'Member of Parliament', Priority.HIGH, TWO_LEVEL),
+		t('Bureau', 'Bureau', Priority.HIGH, ONE_LEVEL),
+		t('MP', 'Member of Parliament', Priority.HIGH, ONE_LEVEL),
 		t('PAP Staff', 'PAP Staff', Priority.MEDIUM, ONE_LEVEL),
 		t('AU Staff', 'AU Staff', Priority.MEDIUM, ONE_LEVEL),
 		t(
 			'Diplomatic Corps',
 			'Diplomatic Corps (including Ambassadors)',
 			Priority.HIGH,
-			TWO_LEVEL,
+			ONE_LEVEL,
 		),
-		t('Security Clusters', 'Security Clusters', Priority.HIGH, TWO_LEVEL),
+		t('Security Clusters', 'Security Clusters', Priority.HIGH, ONE_LEVEL),
 		t('Entertainers', 'Entertainers', Priority.LOW, ONE_LEVEL),
 		t('Media', 'Media', Priority.MEDIUM, ONE_LEVEL),
 		t('Support Staff', 'Support Staff', Priority.LOW, ONE_LEVEL),
@@ -49,13 +48,13 @@ export const pap: OrganProfile = {
 			'Host Country Officials',
 			'Host Country Officials',
 			Priority.HIGH,
-			TWO_LEVEL,
+			ONE_LEVEL,
 		),
 		t('Guests', 'Guests', Priority.MEDIUM, ONE_LEVEL),
 		t('Special Guests', 'Special Guests', Priority.HIGH, ONE_LEVEL),
 		t('Observers', 'Observers', Priority.MEDIUM, ONE_LEVEL),
-		t('VIPs', 'VIPs', Priority.HIGH, TWO_LEVEL),
-		t('VVIPs', 'VVIPs', Priority.HIGH, TWO_LEVEL),
+		t('VIPs', 'VIPs', Priority.HIGH, ONE_LEVEL),
+		t('VVIPs', 'VVIPs', Priority.HIGH, ONE_LEVEL),
 		t('Service Providers', 'Service Providers', Priority.LOW, ONE_LEVEL),
 		t('Others', 'Others', Priority.LOW, ONE_LEVEL),
 		t('Any', 'Any participant', Priority.MEDIUM, ONE_LEVEL),
@@ -89,7 +88,7 @@ export const pap: OrganProfile = {
 		'tenant.phone/address/city (PAP seat in Midrand, not confirmed)',
 		'participantTypes[].priority (assigned by inference, not supplied)',
 		'meetingTypes[].description (written here, PAP supplied names only)',
-		'participantTypes[].workflowTemplate (Two Levels for Bureau, MP, Diplomatic Corps, Security Clusters, Host Country Officials, VIPs and VVIPs; One Level for the rest; not confirmed)',
+		'participantTypes[].workflowTemplate (One Level for every type, per PAP on 2026-11-06; Two Levels stays available in the wizard)',
 	],
 }
 
