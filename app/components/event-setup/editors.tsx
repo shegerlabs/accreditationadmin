@@ -1,4 +1,4 @@
-import { ChevronDown, Plus, X } from 'lucide-react'
+import { ChevronDown, ClipboardPaste, Plus, X } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Button } from '~/components/ui/button'
 import { Checkbox } from '~/components/ui/checkbox'
@@ -17,9 +17,13 @@ import {
 	KEEP,
 	eventTypeIds,
 	forEventTypes,
+	invitationProblems,
+	parseInvitationLines,
+	restrictionChoices,
 	stepsForUser,
 	workflowsWithStep,
 	type SetupContext,
+	type SetupInvitation,
 	type SetupPlan,
 	type SetupRestriction,
 	type SetupSectionKey,
@@ -84,6 +88,7 @@ export function SectionEditor({
 }: EditorProps & { section: SetupSectionKey }) {
 	if (section === 'types') return <TypesEditor {...props} />
 	if (section === 'restrictions') return <RestrictionsEditor {...props} />
+	if (section === 'invitations') return <InvitationsEditor {...props} />
 	if (section === 'workflows')
 		return <PerTypeEditor field="workflows" {...props} />
 	if (section === 'badges') return <PerTypeEditor field="badges" {...props} />
@@ -214,163 +219,170 @@ function RestrictionsEditor({ ctx, plan, setPlan }: EditorProps) {
 		<div className="flex flex-col gap-4">
 			{ctx.mode === 'edit' && (
 				<p className="text-sm text-muted-foreground">
-					Invitations keep the quotas they were given, so changes here only
-					apply to invitations added from now on. A restriction with invitations
-					can&rsquo;t be removed.
+					Saved invitations keep the quotas they were given, so changes here
+					only apply to invitations added from now on. A restriction can&rsquo;t
+					be removed while an invitation uses it.
 				</p>
 			)}
 			{plan.restrictions.length === 0 && (
 				<p className="text-sm text-muted-foreground">
-					No restrictions. Invitations will have no quotas until you add some.
+					No restrictions yet. Add one for each delegation group and its quotas.
+					Invitations without a restriction have no quotas.
 				</p>
 			)}
-			{plan.restrictions.map(r => (
-				<div key={r.key} className="rounded-lg border">
-					<div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2">
-						<Input
-							aria-label="Restriction name"
-							value={r.name}
-							onChange={e =>
-								update(r.key, x => ({ ...x, name: e.target.value }))
-							}
-							className="h-9 max-w-xs bg-background font-medium"
-						/>
-						{ctx.locks.restriction[r.key] && (
-							<span className="ml-auto text-xs text-muted-foreground">
-								{ctx.locks.restriction[r.key]}
-							</span>
-						)}
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className={cn(
-								'text-muted-foreground',
-								!ctx.locks.restriction[r.key] && 'ml-auto',
+			{plan.restrictions.map(r => {
+				const users = plan.invitations.filter(
+					i => i.restrictionKey === r.key,
+				).length
+				const lock =
+					users > 0
+						? `Used by ${users} invitation${users === 1 ? '' : 's'}`
+						: ''
+				return (
+					<div key={r.key} className="rounded-lg border">
+						<div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2">
+							<Input
+								aria-label="Restriction name"
+								value={r.name}
+								onChange={e =>
+									update(r.key, x => ({ ...x, name: e.target.value }))
+								}
+								className="h-9 max-w-xs bg-background font-medium"
+							/>
+							{lock && (
+								<span className="ml-auto text-xs text-muted-foreground">
+									{lock}
+								</span>
 							)}
-							disabled={Boolean(ctx.locks.restriction[r.key])}
-							onClick={() =>
-								setPlan(p => ({
-									...p,
-									restrictions: p.restrictions.filter(x => x.key !== r.key),
-								}))
-							}
-						>
-							Remove restriction
-						</Button>
-					</div>
-					<div className="flex flex-col gap-2 p-3">
-						{r.constraints.length > 0 && (
-							<div className="hidden grid-cols-[1fr_1fr_8rem_6rem_2.5rem] gap-2 px-1 text-xs font-medium text-muted-foreground sm:grid">
-								<span>Quota name</span>
-								<span>Participant type</span>
-								<span>Session</span>
-								<span className="text-right">Quota</span>
-								<span />
-							</div>
-						)}
-						{r.constraints.map(c => (
-							<div
-								key={c.key}
-								className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1fr_8rem_6rem_2.5rem]"
+							<Button
+								type="button"
+								variant="ghost"
+								size="sm"
+								className={cn('text-muted-foreground', !lock && 'ml-auto')}
+								disabled={Boolean(lock)}
+								onClick={() =>
+									setPlan(p => ({
+										...p,
+										restrictions: p.restrictions.filter(x => x.key !== r.key),
+									}))
+								}
 							>
-								<Input
-									aria-label="Quota name"
-									value={c.name}
-									className="h-9"
-									onChange={e =>
-										updateConstraint(r.key, c.key, { name: e.target.value })
-									}
-								/>
-								<Pick
-									label="Participant type"
-									value={
-										typeOptions.some(o => o.value === c.participantTypeId)
-											? c.participantTypeId
-											: undefined
-									}
-									placeholder="Not in this event"
-									options={typeOptions}
-									onChange={v =>
-										updateConstraint(r.key, c.key, { participantTypeId: v })
-									}
-								/>
-								<Pick
-									label="Session"
-									value={c.accessLevel}
-									options={[
-										{ value: 'OPEN', label: 'Open' },
-										{ value: 'CLOSED', label: 'Closed' },
-									]}
-									onChange={v =>
-										updateConstraint(r.key, c.key, {
-											accessLevel: v as 'OPEN' | 'CLOSED',
-										})
-									}
-								/>
-								<Input
-									aria-label="Quota"
-									type="number"
-									min={0}
-									inputMode="numeric"
-									value={c.quota}
-									className="h-9 text-right tabular-nums"
-									onChange={e =>
-										updateConstraint(r.key, c.key, {
-											quota: Math.max(
-												0,
-												Math.floor(Number(e.target.value) || 0),
-											),
-										})
-									}
-								/>
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon"
-									className="h-9 w-10"
-									aria-label={`Remove quota ${c.name}`}
-									onClick={() =>
-										update(r.key, x => ({
-											...x,
-											constraints: x.constraints.filter(y => y.key !== c.key),
-										}))
-									}
+								Remove restriction
+							</Button>
+						</div>
+						<div className="flex flex-col gap-2 p-3">
+							{r.constraints.length > 0 && (
+								<div className="hidden grid-cols-[1fr_1fr_8rem_6rem_2.5rem] gap-2 px-1 text-xs font-medium text-muted-foreground sm:grid">
+									<span>Quota name</span>
+									<span>Participant type</span>
+									<span>Session</span>
+									<span className="text-right">Quota</span>
+									<span />
+								</div>
+							)}
+							{r.constraints.map(c => (
+								<div
+									key={c.key}
+									className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1fr_8rem_6rem_2.5rem]"
 								>
-									<X className="h-4 w-4" />
-								</Button>
-							</div>
-						))}
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="self-start"
-							onClick={() =>
-								update(r.key, x => ({
-									...x,
-									constraints: [
-										...x.constraints,
-										{
-											key: nextKey(),
-											name: 'New quota',
-											participantTypeId: typeOptions[0]?.value ?? '',
-											accessLevel: 'OPEN',
-											quota: 0,
-										},
-									],
-								}))
-							}
-						>
-							<Plus className="mr-1.5 h-4 w-4" />
-							Add quota
-						</Button>
-						<p className="px-1 text-xs text-muted-foreground">
-							Quota 0 means no limit.
-						</p>
+									<Input
+										aria-label="Quota name"
+										value={c.name}
+										className="h-9"
+										onChange={e =>
+											updateConstraint(r.key, c.key, { name: e.target.value })
+										}
+									/>
+									<Pick
+										label="Participant type"
+										value={
+											typeOptions.some(o => o.value === c.participantTypeId)
+												? c.participantTypeId
+												: undefined
+										}
+										placeholder="Not in this event"
+										options={typeOptions}
+										onChange={v =>
+											updateConstraint(r.key, c.key, { participantTypeId: v })
+										}
+									/>
+									<Pick
+										label="Session"
+										value={c.accessLevel}
+										options={[
+											{ value: 'OPEN', label: 'Open' },
+											{ value: 'CLOSED', label: 'Closed' },
+										]}
+										onChange={v =>
+											updateConstraint(r.key, c.key, {
+												accessLevel: v as 'OPEN' | 'CLOSED',
+											})
+										}
+									/>
+									<Input
+										aria-label="Quota"
+										type="number"
+										min={0}
+										inputMode="numeric"
+										value={c.quota}
+										className="h-9 text-right tabular-nums"
+										onChange={e =>
+											updateConstraint(r.key, c.key, {
+												quota: Math.max(
+													0,
+													Math.floor(Number(e.target.value) || 0),
+												),
+											})
+										}
+									/>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="h-9 w-10"
+										aria-label={`Remove quota ${c.name}`}
+										onClick={() =>
+											update(r.key, x => ({
+												...x,
+												constraints: x.constraints.filter(y => y.key !== c.key),
+											}))
+										}
+									>
+										<X className="h-4 w-4" />
+									</Button>
+								</div>
+							))}
+							<Button
+								type="button"
+								variant="ghost"
+								size="sm"
+								className="self-start"
+								onClick={() =>
+									update(r.key, x => ({
+										...x,
+										constraints: [
+											...x.constraints,
+											{
+												key: nextKey(),
+												name: 'New quota',
+												participantTypeId: typeOptions[0]?.value ?? '',
+												accessLevel: 'OPEN',
+												quota: 0,
+											},
+										],
+									}))
+								}
+							>
+								<Plus className="mr-1.5 h-4 w-4" />
+								Add quota
+							</Button>
+							<p className="px-1 text-xs text-muted-foreground">
+								Quota 0 means no limit.
+							</p>
+						</div>
 					</div>
-				</div>
-			))}
+				)
+			})}
 			<Button
 				type="button"
 				variant="outline"
@@ -389,6 +401,250 @@ function RestrictionsEditor({ ctx, plan, setPlan }: EditorProps) {
 				<Plus className="mr-1.5 h-4 w-4" />
 				Add restriction
 			</Button>
+		</div>
+	)
+}
+
+/** Organization, focal point, email, restriction, maximum, remove. */
+const INVITATION_COLS =
+	'grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.3fr)_9rem_4.5rem_2.5rem]'
+
+/** One editable row per invitation, plus pasting rows from a spreadsheet. */
+function InvitationsEditor({ ctx, plan, setPlan }: EditorProps) {
+	const choices = restrictionChoices(ctx, plan)
+	const options = [
+		...choices.map(r => ({ value: r.key, label: r.name || 'Unnamed' })),
+		{ value: '', label: 'No restriction' },
+	]
+	const firstChoice = choices[0]?.key ?? ''
+	const [pasting, setPasting] = useState(false)
+	const [text, setText] = useState('')
+	const [pasteRestriction, setPasteRestriction] = useState(firstChoice)
+	const problems = invitationProblems(ctx, plan)
+	const problemCount = Object.keys(problems).length
+	const parsed = parseInvitationLines(text, pasteRestriction, nextKey)
+	const set = (fn: (list: SetupInvitation[]) => SetupInvitation[]) =>
+		setPlan(p => ({ ...p, invitations: fn(p.invitations) }))
+	const update = (key: string, patch: Partial<SetupInvitation>) =>
+		set(list => list.map(i => (i.key === key ? { ...i, ...patch } : i)))
+
+	return (
+		<div className="flex flex-col gap-4">
+			<p className="max-w-prose text-sm text-muted-foreground">
+				Each invitation is one organization&rsquo;s focal point, and gets the
+				quotas of the restriction you pick. This step is optional: you can also
+				add invitations on the Invitations tab later.
+				{ctx.mode === 'edit' &&
+					' Changing a saved invitation\u2019s restriction replaces the quotas it got from the old one.'}
+			</p>
+
+			<div className="flex flex-wrap items-center gap-2">
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onClick={() =>
+						set(list => [
+							...list,
+							{
+								key: nextKey(),
+								organization: '',
+								name: '',
+								email: '',
+								restrictionKey: firstChoice,
+								maximumQuota: '',
+							},
+						])
+					}
+				>
+					<Plus className="mr-1.5 h-4 w-4" />
+					Add invitation
+				</Button>
+				<Button
+					type="button"
+					variant={pasting ? 'secondary' : 'outline'}
+					size="sm"
+					aria-expanded={pasting}
+					onClick={() => setPasting(p => !p)}
+				>
+					<ClipboardPaste className="mr-1.5 h-4 w-4" />
+					Paste from spreadsheet
+				</Button>
+				{plan.invitations.length > 0 && (
+					<span className="ml-auto text-sm tabular-nums text-muted-foreground">
+						{plan.invitations.length} invitation
+						{plan.invitations.length === 1 ? '' : 's'}
+						{problemCount > 0 && (
+							<span className="text-destructive"> · {problemCount} to fix</span>
+						)}
+					</span>
+				)}
+			</div>
+
+			{pasting && (
+				<div className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-3">
+					<div className="flex flex-col gap-1.5">
+						<Label htmlFor="paste-invitations">
+							One invitation per line: organization, focal point, email
+						</Label>
+						<Textarea
+							id="paste-invitations"
+							rows={5}
+							wrap="off"
+							spellCheck={false}
+							value={text}
+							onChange={e => setText(e.target.value)}
+							placeholder={
+								'Parliament of Ghana, Kwame Asante, kasante@parliament.gh\nNational Assembly of Zambia, , clerk@parliament.gov.zm'
+							}
+							className="bg-background font-mono text-sm"
+						/>
+						<p className="text-xs text-muted-foreground">
+							Columns copied from a spreadsheet work too. The focal point can be
+							left empty.
+						</p>
+					</div>
+					<div className="flex flex-wrap items-center gap-2">
+						<span className="text-sm">Restriction for these:</span>
+						<Pick
+							label="Restriction for pasted invitations"
+							value={pasteRestriction}
+							options={options}
+							onChange={setPasteRestriction}
+							className="w-48 bg-background"
+						/>
+						<Button
+							type="button"
+							size="sm"
+							className="ml-auto active:scale-[0.97]"
+							disabled={parsed.length === 0}
+							onClick={() => {
+								set(list => [...list, ...parsed])
+								setText('')
+								setPasting(false)
+							}}
+						>
+							{parsed.length === 0
+								? 'Add rows'
+								: `Add ${parsed.length} ${parsed.length === 1 ? 'row' : 'rows'}`}
+						</Button>
+					</div>
+				</div>
+			)}
+
+			{plan.invitations.length === 0 ? (
+				<p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+					No invitations yet. Setup works without them.
+				</p>
+			) : (
+				<div className="flex flex-col gap-2">
+					<div
+						className={cn(
+							INVITATION_COLS,
+							'hidden px-1 text-xs font-medium text-muted-foreground sm:grid',
+						)}
+					>
+						<span>Organization</span>
+						<span>Focal point</span>
+						<span>Email</span>
+						<span>Restriction</span>
+						<span className="text-right">Maximum</span>
+						<span />
+					</div>
+					{plan.invitations.map((i, n) => {
+						const lock = ctx.locks.invitation[i.key]
+						const label = i.organization || `row ${n + 1}`
+						return (
+							<div key={i.key} className="flex flex-col gap-1">
+								<div className={INVITATION_COLS}>
+									<Input
+										aria-label={`Organization, row ${n + 1}`}
+										value={i.organization}
+										title={i.organization}
+										onChange={e =>
+											update(i.key, { organization: e.target.value })
+										}
+										className="h-9"
+									/>
+									<Input
+										aria-label={`Focal point, row ${n + 1}`}
+										value={i.name}
+										placeholder="Optional"
+										onChange={e => update(i.key, { name: e.target.value })}
+										className="h-9"
+									/>
+									<Input
+										aria-label={`Email, row ${n + 1}`}
+										type="email"
+										value={i.email}
+										title={i.email}
+										spellCheck={false}
+										autoComplete="off"
+										aria-invalid={Boolean(problems[i.key])}
+										onChange={e => update(i.key, { email: e.target.value })}
+										className={cn(
+											'h-9',
+											problems[i.key] && 'border-destructive',
+										)}
+									/>
+									<Pick
+										label={`Restriction, row ${n + 1}`}
+										value={
+											options.some(o => o.value === i.restrictionKey)
+												? i.restrictionKey
+												: undefined
+										}
+										placeholder="Removed"
+										options={options}
+										onChange={v => update(i.key, { restrictionKey: v })}
+									/>
+									<Input
+										aria-label={`Maximum participants, row ${n + 1}`}
+										inputMode="numeric"
+										value={i.maximumQuota}
+										placeholder="None"
+										onChange={e =>
+											update(i.key, { maximumQuota: e.target.value })
+										}
+										className="h-9 text-right tabular-nums"
+									/>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="h-9 w-10"
+										disabled={Boolean(lock)}
+										title={lock ? `${lock}, so it can't be removed` : undefined}
+										aria-label={`Remove ${label}`}
+										onClick={() =>
+											set(list => list.filter(x => x.key !== i.key))
+										}
+									>
+										<X className="h-4 w-4" />
+									</Button>
+								</div>
+								{(problems[i.key] || lock) && (
+									<p
+										className={cn(
+											'px-1 text-xs',
+											problems[i.key]
+												? 'text-destructive'
+												: 'text-muted-foreground',
+										)}
+									>
+										Row {n + 1}:{' '}
+										{problems[i.key] ?? `${lock}, so it can\u2019t be removed`}
+									</p>
+								)}
+							</div>
+						)
+					})}
+					<p className="px-1 text-xs text-muted-foreground">
+						Maximum caps how many people the organization can register in total.
+						Empty means only the restriction&rsquo;s quotas apply.
+					</p>
+				</div>
+			)}
 		</div>
 	)
 }

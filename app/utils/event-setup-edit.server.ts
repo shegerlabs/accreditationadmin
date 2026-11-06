@@ -16,6 +16,8 @@ import {
 import {
 	type ParsedPlan,
 	TRANSACTION_OPTIONS,
+	copyRestrictionQuotas,
+	createInvitations,
 	profileWorkflowTemplates,
 } from './event-setup.server'
 import { EMAIL_TEMPLATE_DEFAULTS, EMAIL_TRIGGERS } from './participant-email'
@@ -29,41 +31,59 @@ export async function buildSavedPlan(
 	ctx: SetupContext,
 	event: { id: string; tenantId: string },
 ): Promise<SetupPlan> {
-	const [restrictions, badgeRows, emailRows, accessRows, profileTemplate] =
-		await Promise.all([
-			prisma.restriction.findMany({
-				where: { eventId: event.id },
-				select: {
-					id: true,
-					name: true,
-					constraints: {
-						select: {
-							id: true,
-							name: true,
-							participantTypeId: true,
-							accessLevel: true,
-							quota: true,
-						},
-						orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+	const [
+		restrictions,
+		invitations,
+		badgeRows,
+		emailRows,
+		accessRows,
+		profileTemplate,
+	] = await Promise.all([
+		prisma.restriction.findMany({
+			where: { eventId: event.id },
+			select: {
+				id: true,
+				name: true,
+				constraints: {
+					select: {
+						id: true,
+						name: true,
+						participantTypeId: true,
+						accessLevel: true,
+						quota: true,
 					},
+					orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
 				},
-				orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-			}),
-			prisma.template.findMany({
-				where: { eventId: event.id, templateType: 'BADGE' },
-				select: { participantTypeId: true, badgeTemplateId: true },
-				orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-			}),
-			prisma.emailTemplate.findMany({
-				where: { eventId: event.id },
-				select: { trigger: true, enabled: true, subject: true, body: true },
-			}),
-			prisma.userEventAccess.findMany({
-				where: { eventId: event.id, stepId: { not: null } },
-				select: { userId: true, step: { select: { name: true } } },
-			}),
-			profileWorkflowTemplates(event.tenantId),
-		])
+			},
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+		}),
+		prisma.invitation.findMany({
+			where: { eventId: event.id },
+			select: {
+				id: true,
+				organization: true,
+				name: true,
+				email: true,
+				restrictionId: true,
+				maximumQuota: true,
+			},
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+		}),
+		prisma.template.findMany({
+			where: { eventId: event.id, templateType: 'BADGE' },
+			select: { participantTypeId: true, badgeTemplateId: true },
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+		}),
+		prisma.emailTemplate.findMany({
+			where: { eventId: event.id },
+			select: { trigger: true, enabled: true, subject: true, body: true },
+		}),
+		prisma.userEventAccess.findMany({
+			where: { eventId: event.id, stepId: { not: null } },
+			select: { userId: true, step: { select: { name: true } } },
+		}),
+		profileWorkflowTemplates(event.tenantId),
+	])
 
 	const typeName = new Map(ctx.participantTypes.map(t => [t.id, t.name]))
 	const templateIdByName = new Map(
@@ -125,6 +145,14 @@ export async function buildSavedPlan(
 				quota: c.quota,
 			})),
 		})),
+		invitations: invitations.map(i => ({
+			key: i.id,
+			organization: i.organization,
+			name: i.name ?? '',
+			email: i.email,
+			restrictionKey: i.restrictionId ?? '',
+			maximumQuota: i.maximumQuota === null ? '' : String(i.maximumQuota),
+		})),
 		workflows,
 		badges,
 		emails,
@@ -163,6 +191,9 @@ export type EditResult = {
 	restrictionsAdded: number
 	restrictionsChanged: number
 	restrictionsRemoved: number
+	invitationsAdded: number
+	invitationsChanged: number
+	invitationsRemoved: number
 	workflowsAdded: number
 	workflowsReplaced: number
 	workflowsRemoved: number
@@ -192,6 +223,9 @@ export async function applySetupEdit(
 			restrictionsAdded: 0,
 			restrictionsChanged: 0,
 			restrictionsRemoved: 0,
+			invitationsAdded: 0,
+			invitationsChanged: 0,
+			invitationsRemoved: 0,
 			workflowsAdded: 0,
 			workflowsReplaced: 0,
 			workflowsRemoved: 0,
@@ -258,6 +292,48 @@ export async function applySetupEdit(
 		})
 		r.typesAdded = addedTypes.length
 
+		// Invitations, part 1: removals, and letting go of a restriction that
+		// is about to change, so deleting that restriction can't cascade into
+		// an invitation the plan keeps. Part 2 is after the restrictions.
+		const savedInvitations = await tx.invitation.findMany({
+			where: { eventId: event.id },
+			select: {
+				id: true,
+				organization: true,
+				name: true,
+				email: true,
+				restrictionId: true,
+				maximumQuota: true,
+				_count: { select: { participants: true } },
+			},
+		})
+		const savedInvitationById = new Map(savedInvitations.map(i => [i.id, i]))
+		const planInvitationKeys = new Set(plan.invitations.map(i => i.key))
+		for (const s of savedInvitations) {
+			if (planInvitationKeys.has(s.id)) continue
+			if (s._count.participants > 0)
+				throw new SetupEditError(
+					`${s.organization} has ${plural(s._count.participants, 'participant')}, so its invitation can't be removed.`,
+				)
+			await tx.invitation.delete({ where: { id: s.id } })
+			r.invitationsRemoved++
+		}
+		const restrictionChanged = plan.invitations.filter(i => {
+			const s = savedInvitationById.get(i.key)
+			return s && (s.restrictionId ?? '') !== i.restrictionKey
+		})
+		for (const i of restrictionChanged) {
+			const s = savedInvitationById.get(i.key)!
+			if (!s.restrictionId) continue
+			await tx.invitationConstraint.deleteMany({
+				where: { invitationId: s.id, sourceRestrictionId: s.restrictionId },
+			})
+			await tx.invitation.update({
+				where: { id: s.id },
+				data: { restrictionId: null },
+			})
+		}
+
 		// Restrictions, matched to saved ones by id. Deletes go first so a
 		// changed type or session can't collide with the unique quota key.
 		const savedRestrictions = await tx.restriction.findMany({
@@ -295,12 +371,15 @@ export async function applySetupEdit(
 			})
 		const validQuota = (c: { participantTypeId: string }) =>
 			typeName.has(c.participantTypeId)
+		// Plan key -> restriction id, for the invitations below.
+		const restrictionIds = new Map(kept.map(x => [x.key!, x.key!]))
 		for (const x of plan.restrictions) {
 			const s = x.key ? savedById.get(x.key) : undefined
 			if (!s) {
 				const created = await tx.restriction.create({
 					data: { tenantId: event.tenantId, eventId: event.id, name: x.name },
 				})
+				if (x.key) restrictionIds.set(x.key, created.id)
 				await tx.constraint.createMany({
 					data: x.constraints.filter(validQuota).map(c => ({
 						tenantId: event.tenantId,
@@ -355,6 +434,44 @@ export async function applySetupEdit(
 			})
 			if (changed) r.restrictionsChanged++
 		}
+
+		// Invitations, part 2: changes in place, then new ones. A changed
+		// restriction brings that restriction's quotas; quotas added by hand
+		// on the Invitations tab stay.
+		for (const i of plan.invitations) {
+			const s = savedInvitationById.get(i.key)
+			if (!s) continue
+			const restrictionId = restrictionIds.get(i.restrictionKey) ?? null
+			const maximumQuota = i.maximumQuota ? Number(i.maximumQuota) : null
+			const moved = (s.restrictionId ?? '') !== i.restrictionKey
+			if (
+				!moved &&
+				s.organization === i.organization &&
+				(s.name ?? '') === i.name &&
+				s.email === i.email &&
+				s.maximumQuota === maximumQuota
+			)
+				continue
+			await tx.invitation.update({
+				where: { id: s.id },
+				data: {
+					organization: i.organization,
+					name: i.name || null,
+					email: i.email,
+					maximumQuota,
+					...(moved ? { restrictionId } : {}),
+				},
+			})
+			if (moved && restrictionId)
+				await copyRestrictionQuotas(tx, s.id, restrictionId)
+			r.invitationsChanged++
+		}
+		r.invitationsAdded = await createInvitations(
+			tx,
+			plan.invitations.filter(i => !savedInvitationById.has(i.key)),
+			restrictionIds,
+			event,
+		)
 
 		// Workflows. Replacing or removing one deletes its steps, and with them
 		// the staff access on those steps; access is reapplied below.

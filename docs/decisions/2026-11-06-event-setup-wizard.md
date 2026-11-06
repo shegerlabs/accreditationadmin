@@ -7,8 +7,8 @@ Emails and Access one by one and recreating the same defaults by hand.
 
 A stepped wizard at `/admin/events/:eventId/setup` with a **receipt** panel.
 
-- Steps: Participant types → Restrictions → Workflows → Badge templates → Emails
-  → Staff access → Confirm. (Participant types added later, see
+- Steps: Participant types → Restrictions → Invitations → Workflows → Badge
+  templates → Emails → Staff access → Confirm. (Participant types added later, see
   `2026-11-06-event-participant-types.md`.)
 - Left: the editor for the current step. Right (sticky): a receipt of everything
   that will be created. Each section shows its summary and a status: _Not
@@ -20,9 +20,8 @@ A stepped wizard at `/admin/events/:eventId/setup` with a **receipt** panel.
   any exist; workflows and badge templates per participant type; emails per
   trigger; access rows are de-duplicated). This still holds for published
   events. Drafts that have been set up are edited instead, see below.
-- Invitations are not part of setup: each is an organization's focal point, so
-  there is no default list. They are added afterwards and draw on the
-  restrictions.
+- Invitations are part of setup (changed later on 2026-11-06, see below). There
+  is still no default list: the admin types or pastes it.
 
 ## Editing a draft's setup (added 2026-11-06)
 
@@ -41,10 +40,13 @@ differences, in one transaction (`app/utils/event-setup-edit.server.ts`).
 - Staff access: each person shows the step they work on most in the event.
   Changing it replaces their step access in this event; people left alone keep
   theirs and get their step on any workflow the save creates.
-- Invitations aren't changed. They keep the quotas they were given.
+- Saved invitations keep the quotas they were given when a restriction's quotas
+  change. Changing an invitation's restriction replaces the quotas it got from
+  the old one; quotas added by hand on the Invitations tab stay.
 - Locks, because these deletes cascade: a type with participants, invitations or
   invitation quotas can't be removed; a type with participants keeps its
-  workflow; a restriction with invitations can't be removed; a badge template
+  workflow; a restriction used by an invitation in the plan can't be removed; an invitation
+with participants can't be removed; a badge template
   with uploaded files can be repointed but not removed. The server checks each
   again inside the transaction.
 - The page carries a hash of the saved setup. A save over a setup that changed
@@ -55,8 +57,9 @@ differences, in one transaction (`app/utils/event-setup-edit.server.ts`).
 
 ## Defaults
 
-- Restrictions: the seed's _Member States_ (Closed Session/Any closed 20, Any
-  open 0) and _Non Member States_ (Observers closed 1).
+- Restrictions: none. The admin adds each event's own (decided 2026-11-06; the
+  AU seed's Member States / Non Member States were dropped).
+- Invitations: none.
 - Workflows: the organ profile's template per participant type
   (`scripts/profiles/`), "Any" excluded.
 - Badge templates: the tenant's default badge design for every type except
@@ -82,3 +85,23 @@ differences, in one transaction (`app/utils/event-setup-edit.server.ts`).
   edit the step you came to change.
 - **Focus** (full-screen takeover, Enter to continue): hides the event page, and
   Enter-to-advance was too easy to fire on a step that creates records.
+
+## Invitations step (decided 2026-11-06 from /proto/invitations)
+
+- Direction: **Table**, one editable row per invitation (organization, focal
+  point, email, restriction, maximum) with a "Paste from spreadsheet" panel
+  that appends rows (tab- or comma-separated; one restriction for the batch).
+- The step is optional; an empty list sets the event up as before. The
+  restriction dropdown lists the Restrictions step's restrictions (or the
+  event's, when that step is skipped), plus "No restriction".
+- Each invitation gets its restriction's quotas copied on, like Apply
+  restriction (`sourceRestrictionId` set). Emails are lowercased.
+- Row problems (missing organization, bad email, duplicate organization +
+  email, non-numeric maximum, removed restriction) block Set up.
+- Login details for focal points stay on the Invitations tab.
+- Create mode skips the step when the event already has invitations.
+- Rejected: **By restriction** (cards per restriction with quick-add):
+  clear grouping, but an extra click to edit and moving an invitation meant
+  opening its edit form. **List** (the text is the source of truth, checked
+  live): fastest to paste, but restrictions must be typed by name and long
+  lists are fragile to edit by hand.

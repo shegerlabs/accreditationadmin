@@ -27,28 +27,6 @@ import {
 /** Roles whose users work on workflow steps. */
 export const STAFF_ROLES = ['reviewer', 'validator', 'printer', 'dispatcher']
 
-/** The seed's restrictions (prisma/seed.ts), by PAP participant type name. */
-const DEFAULT_RESTRICTIONS = [
-	{
-		name: 'Member States',
-		constraints: [
-			{ name: 'Closed Session', type: 'Any', accessLevel: 'CLOSED', quota: 20 },
-			{ name: 'Any', type: 'Any', accessLevel: 'OPEN', quota: 0 },
-		],
-	},
-	{
-		name: 'Non Member States',
-		constraints: [
-			{
-				name: 'Closed Session',
-				type: 'Observers',
-				accessLevel: 'CLOSED',
-				quota: 1,
-			},
-		],
-	},
-] as const
-
 /** Interactive transactions default to 5s; cloning ~25 workflows step by step takes longer. */
 export const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 }
 
@@ -114,6 +92,7 @@ export async function loadSetupContext(event: {
 		badgeTemplates,
 		staff,
 		restrictions,
+		invitations,
 		workflows,
 		badges,
 		emails,
@@ -157,7 +136,12 @@ export async function loadSetupContext(event: {
 			},
 			orderBy: { username: 'asc' },
 		}),
-		prisma.restriction.count({ where: { eventId: event.id } }),
+		prisma.restriction.findMany({
+			where: { eventId: event.id },
+			select: { id: true, name: true },
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+		}),
+		prisma.invitation.count({ where: { eventId: event.id } }),
 		prisma.workflow.findMany({
 			where: { eventId: event.id },
 			select: {
@@ -201,7 +185,7 @@ export async function loadSetupContext(event: {
 		...(mode === 'edit'
 			? await loadEditState(event.id, typeNames)
 			: {
-					locks: { typeRemoval: {}, workflow: {}, badge: {}, restriction: {} },
+					locks: { typeRemoval: {}, workflow: {}, badge: {}, invitation: {} },
 					saved: { workflowNames: {}, accessSteps: {} },
 				}),
 		participantTypes: types,
@@ -226,7 +210,9 @@ export async function loadSetupContext(event: {
 		})),
 		existing: {
 			typeIds: eventTypes.map(t => t.participantTypeId),
-			restrictions,
+			restrictions: restrictions.length,
+			restrictionList: restrictions,
+			invitations,
 			workflows: workflows.map(w => ({
 				participantTypeId: w.participantTypeId,
 				steps: w.steps.map(s => ({ name: s.name, role: s.role?.name ?? '' })),
@@ -239,16 +225,17 @@ export async function loadSetupContext(event: {
 }
 
 /**
- * What stops a draft's setup from being changed: removing a restriction deletes
- * its invitations, and removing a workflow deletes the participants on its
- * steps (both cascade), so those are refused rather than done quietly.
+ * What stops a draft's setup from being changed: removing an invitation deletes
+ * its participants, and removing a workflow deletes the participants on its
+ * steps (both cascade), so those are refused rather than done quietly. A
+ * restriction can't be removed while an invitation uses it; the plan checks that.
  */
 async function loadEditState(eventId: string, typeNames: Map<string, string>) {
 	const [
 		participants,
 		invitations,
 		invitationQuotas,
-		restrictions,
+		invitationsWithParticipants,
 		badges,
 		workflows,
 		access,
@@ -268,12 +255,12 @@ async function loadEditState(eventId: string, typeNames: Map<string, string>) {
 			where: { invitation: { eventId } },
 			_count: true,
 		}),
-		prisma.restriction.findMany({
-			where: { eventId },
+		prisma.invitation.findMany({
+			where: { eventId, participants: { some: {} } },
 			select: {
 				id: true,
-				name: true,
-				_count: { select: { invitations: true } },
+				organization: true,
+				_count: { select: { participants: true } },
 			},
 		}),
 		prisma.template.findMany({
@@ -300,7 +287,7 @@ async function loadEditState(eventId: string, typeNames: Map<string, string>) {
 		typeRemoval: {},
 		workflow: {},
 		badge: {},
-		restriction: {},
+		invitation: {},
 	}
 	for (const p of participants) {
 		const reason = `${name(p.participantTypeId)} has ${plural(p._count, 'participant')}`
@@ -315,10 +302,9 @@ async function loadEditState(eventId: string, typeNames: Map<string, string>) {
 		locks.typeRemoval[q.participantTypeId] ??=
 			`${name(q.participantTypeId)} has quotas in ${plural(q._count, 'invitation')}`
 	}
-	for (const r of restrictions) {
-		if (r._count.invitations > 0)
-			locks.restriction[r.id] =
-				`${r.name} is used by ${plural(r._count.invitations, 'invitation')}`
+	for (const i of invitationsWithParticipants) {
+		locks.invitation[i.id] =
+			`${i.organization} has ${plural(i._count.participants, 'participant')}`
 	}
 	for (const b of badges) {
 		if (b._count.attachments > 0)
@@ -353,7 +339,6 @@ export async function buildDefaultPlan(
 	ctx: SetupContext,
 	event: { id: string; tenantId: string },
 ): Promise<SetupPlan> {
-	const typeIdByName = new Map(ctx.participantTypes.map(t => [t.name, t.id]))
 	const typeNameById = new Map(ctx.participantTypes.map(t => [t.id, t.name]))
 
 	// The previous event's list where it has one, else every type.
@@ -366,27 +351,8 @@ export async function buildDefaultPlan(
 					)
 				: [...ctx.assignableTypeIds]
 
-	const restrictions =
-		ctx.existing.restrictions > 0
-			? []
-			: DEFAULT_RESTRICTIONS.map(r => ({
-					key: key(),
-					name: r.name,
-					constraints: r.constraints.flatMap(c => {
-						const participantTypeId = typeIdByName.get(c.type)
-						return participantTypeId
-							? [
-									{
-										key: key(),
-										name: c.name,
-										participantTypeId,
-										accessLevel: c.accessLevel,
-										quota: c.quota,
-									},
-								]
-							: []
-					}),
-				}))
+	// No default restrictions: the admin adds each event's own (decided 2026-11-06).
+	const restrictions: SetupPlan['restrictions'] = []
 
 	// The organ profile scripts/setup-event uses.
 	const profileTemplate = await profileWorkflowTemplates(event.tenantId)
@@ -422,6 +388,7 @@ export async function buildDefaultPlan(
 	const plan: SetupPlan = {
 		types,
 		restrictions,
+		invitations: [],
 		workflows,
 		badges,
 		emails,
@@ -501,6 +468,26 @@ const PlanSchema = z.object({
 			),
 		}),
 	),
+	invitations: z.array(
+		z.object({
+			key: z.string(),
+			organization: z
+				.string()
+				.trim()
+				.min(1, 'Every invitation needs an organization'),
+			name: z.string().trim(),
+			email: z
+				.string()
+				.trim()
+				.toLowerCase()
+				.email('Every invitation needs a valid email'),
+			restrictionKey: z.string(),
+			maximumQuota: z
+				.string()
+				.trim()
+				.regex(/^\d*$/, 'An invitation maximum must be a whole number'),
+		}),
+	),
 	workflows: z.record(z.string()),
 	badges: z.record(z.string()),
 	emails: z.record(
@@ -523,10 +510,64 @@ export type SetupResult = {
 	types: number
 	restrictions: number
 	constraints: number
+	invitations: number
 	workflows: number
 	badges: number
 	emails: number
 	access: number
+}
+
+/**
+ * Create invitations, each with its restriction's quotas copied onto it the
+ * way the Invitations tab's Apply restriction does. `restrictionIds` maps a
+ * plan key to the saved restriction's id.
+ */
+export async function createInvitations(
+	tx: Prisma.TransactionClient,
+	invitations: ParsedPlan['invitations'],
+	restrictionIds: Map<string, string>,
+	event: { id: string; tenantId: string },
+) {
+	for (const i of invitations) {
+		const restrictionId = restrictionIds.get(i.restrictionKey) ?? null
+		const invitation = await tx.invitation.create({
+			data: {
+				tenantId: event.tenantId,
+				eventId: event.id,
+				organization: i.organization,
+				name: i.name || null,
+				email: i.email,
+				restrictionId,
+				maximumQuota: i.maximumQuota ? Number(i.maximumQuota) : null,
+			},
+			select: { id: true },
+		})
+		if (restrictionId)
+			await copyRestrictionQuotas(tx, invitation.id, restrictionId)
+	}
+	return invitations.length
+}
+
+/** Give an invitation its restriction's quotas, skipping any it already has. */
+export async function copyRestrictionQuotas(
+	tx: Prisma.TransactionClient,
+	invitationId: string,
+	restrictionId: string,
+) {
+	const constraints = await tx.constraint.findMany({
+		where: { restrictionId },
+		select: { participantTypeId: true, accessLevel: true, quota: true },
+	})
+	await tx.invitationConstraint.createMany({
+		data: constraints.map(c => ({
+			invitationId,
+			participantTypeId: c.participantTypeId,
+			accessLevel: c.accessLevel,
+			quota: c.quota,
+			sourceRestrictionId: restrictionId,
+		})),
+		skipDuplicates: true,
+	})
 }
 
 /**
@@ -543,6 +584,7 @@ export async function applySetup(
 			types: 0,
 			restrictions: 0,
 			constraints: 0,
+			invitations: 0,
 			workflows: 0,
 			badges: 0,
 			emails: 0,
@@ -577,12 +619,22 @@ export async function applySetup(
 		}
 		const assignable = new Set(eventTypeIds)
 
-		// Restrictions: only into an event that has none.
-		if ((await tx.restriction.count({ where: { eventId: event.id } })) === 0) {
+		// Restrictions: only into an event that has none. Invitations name
+		// them by plan key, or by id when the event already had them.
+		const restrictionIds = new Map(
+			(
+				await tx.restriction.findMany({
+					where: { eventId: event.id },
+					select: { id: true },
+				})
+			).map(r => [r.id, r.id]),
+		)
+		if (restrictionIds.size === 0) {
 			for (const r of plan.restrictions) {
 				const restriction = await tx.restriction.create({
 					data: { tenantId: event.tenantId, eventId: event.id, name: r.name },
 				})
+				if (r.key) restrictionIds.set(r.key, restriction.id)
 				const constraints = r.constraints.filter(c =>
 					typeName.has(c.participantTypeId),
 				)
@@ -599,6 +651,16 @@ export async function applySetup(
 				result.restrictions++
 				result.constraints += constraints.length
 			}
+		}
+
+		// Invitations: only into an event that has none.
+		if ((await tx.invitation.count({ where: { eventId: event.id } })) === 0) {
+			result.invitations = await createInvitations(
+				tx,
+				plan.invitations,
+				restrictionIds,
+				event,
+			)
 		}
 
 		// Workflows: one per participant type that has none yet.

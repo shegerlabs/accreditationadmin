@@ -62,6 +62,9 @@ const EDIT_LABELS = {
 	restrictionsAdded: 'restriction(s) added',
 	restrictionsChanged: 'restriction(s) changed',
 	restrictionsRemoved: 'restriction(s) removed',
+	invitationsAdded: 'invitation(s) added',
+	invitationsChanged: 'invitation(s) changed',
+	invitationsRemoved: 'invitation(s) removed',
 	workflowsAdded: 'workflow(s) added',
 	workflowsReplaced: 'workflow(s) replaced',
 	workflowsRemoved: 'workflow(s) removed',
@@ -151,7 +154,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		entityType: AuditEntityType.EVENT,
 		entityId: event.id,
 		description:
-			`Ran event setup for "${event.name}": ${result.types} participant type(s), ${result.restrictions} restriction(s), ${result.constraints} quota(s), ` +
+			`Ran event setup for "${event.name}": ${result.types} participant type(s), ${result.restrictions} restriction(s), ${result.constraints} quota(s), ${result.invitations} invitation(s), ` +
 			`${result.workflows} workflow(s), ${result.badges} badge template(s), ${result.emails} custom email(s), ` +
 			`${result.access} access row(s)`,
 		userId: user.id,
@@ -162,7 +165,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	return redirectWithToast(`/admin/events/${event.id}`, {
 		type: 'success',
 		title: 'Event set up',
-		description: `Created ${result.workflows} workflows, ${result.badges} badge templates and ${result.access} staff assignments. Add invitations next.`,
+		description: `Created ${result.workflows} workflows, ${result.badges} badge templates, ${result.invitations} invitations and ${result.access} staff assignments.`,
 	})
 }
 
@@ -267,20 +270,6 @@ export default function EventSetupRoute() {
 													.map(c => c.title.toLowerCase())
 													.join(', ')}.`}
 								</p>
-								{editing ? (
-									<p className="max-w-prose text-sm text-muted-foreground">
-										Invitations aren&rsquo;t changed: each keeps the quotas it
-										was given. Edit an invitation&rsquo;s quotas on the
-										Invitations tab.
-									</p>
-								) : (
-									<p className="max-w-prose text-sm text-muted-foreground">
-										Invitations aren&rsquo;t part of setup: each one is an
-										organization&rsquo;s focal point, so there is no default
-										list. Add or import them on the Invitations tab afterwards.
-										They draw on the restrictions created here.
-									</p>
-								)}
 								{problems.length > 0 && (
 									<ul
 										role="alert"
@@ -419,11 +408,6 @@ export default function EventSetupRoute() {
 									</li>
 								)
 							})}
-							<li className="px-4 py-3 text-xs text-muted-foreground">
-								{editing
-									? 'Invitations: not changed'
-									: 'Invitations: after setup'}
-							</li>
 						</ol>
 					</div>
 				</aside>

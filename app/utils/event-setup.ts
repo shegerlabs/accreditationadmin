@@ -20,6 +20,11 @@ export const SETUP_SECTIONS = [
 		help: 'Quotas per delegation group. Invitations draw from these.',
 	},
 	{
+		key: 'invitations',
+		title: 'Invitations',
+		help: 'Which organizations are invited, and the quotas each one gets.',
+	},
+	{
 		key: 'workflows',
 		title: 'Workflows',
 		help: 'Which approval workflow each participant type goes through.',
@@ -68,8 +73,8 @@ export type SetupContext = {
 		workflow: Record<string, string>
 		/** participantTypeId -> why its badge template can't be removed. */
 		badge: Record<string, string>
-		/** restrictionId -> why it can't be removed. */
-		restriction: Record<string, string>
+		/** invitationId -> why it can't be removed. */
+		invitation: Record<string, string>
 	}
 	/** Edit mode: the current workflow's name per participant type, and how many step names each person has. */
 	saved: {
@@ -93,6 +98,9 @@ export type SetupContext = {
 		/** The event's participant types. Empty until setup picks them. */
 		typeIds: string[]
 		restrictions: number
+		/** Create mode: the event's restrictions, offered to invitations when the Restrictions step is skipped. */
+		restrictionList: { id: string; name: string }[]
+		invitations: number
 		workflows: {
 			participantTypeId: string
 			steps: { name: string; role: string }[]
@@ -117,6 +125,19 @@ export type SetupRestriction = {
 	constraints: SetupConstraint[]
 }
 
+export type SetupInvitation = {
+	/** Edit mode: the saved invitation's id; a new one has a client key. */
+	key: string
+	organization: string
+	/** The focal point's name. Optional. */
+	name: string
+	email: string
+	/** A restriction key from the plan (or an existing restriction's id); '' = none. */
+	restrictionKey: string
+	/** Digits only; '' = no maximum. Kept as text so the field can be cleared. */
+	maximumQuota: string
+}
+
 export type SetupEmail = { enabled: boolean; subject: string; body: string }
 
 /** '' means "none" in the per-type maps and in access. */
@@ -124,6 +145,8 @@ export type SetupPlan = {
 	/** The event's participant types, only used while the event has none yet. */
 	types: string[]
 	restrictions: SetupRestriction[]
+	/** Each gets its restriction's quotas copied onto it, as Apply restriction does. */
+	invitations: SetupInvitation[]
 	/** participantTypeId -> workflowTemplateId, only for types without a workflow yet. */
 	workflows: Record<string, string>
 	/** participantTypeId -> badgeTemplateId, only for types without a badge template yet. */
@@ -153,6 +176,77 @@ export function forEventTypes(
 ) {
 	const ids = eventTypeIds(ctx, plan)
 	return Object.fromEntries(Object.entries(map).filter(([id]) => ids.has(id)))
+}
+
+/** The restrictions an invitation can draw on once setup runs. */
+export function restrictionChoices(ctx: SetupContext, plan: SetupPlan) {
+	if (ctx.mode === 'create' && ctx.existing.restrictions > 0)
+		return ctx.existing.restrictionList.map(r => ({ key: r.id, name: r.name }))
+	return plan.restrictions.map(r => ({ key: r.key, name: r.name }))
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** The invitation's identity for the database's unique key (per event, organization and email). */
+const invitationId = (i: { organization: string; email: string }) =>
+	`${i.organization.trim().toLowerCase()}|${i.email.trim().toLowerCase()}`
+
+/** Per-invitation problems by key, shown on the row. */
+export function invitationProblems(
+	ctx: SetupContext,
+	plan: Pick<SetupPlan, 'invitations' | 'restrictions'>,
+) {
+	const out: Record<string, string> = {}
+	const choices = new Set(
+		restrictionChoices(ctx, plan as SetupPlan).map(r => r.key),
+	)
+	const first = new Map<string, number>()
+	plan.invitations.forEach((i, n) => {
+		const id = invitationId(i)
+		if (!i.organization.trim()) out[i.key] = 'Organization is required'
+		else if (!i.email.trim()) out[i.key] = 'Email is required'
+		else if (!EMAIL.test(i.email.trim())) out[i.key] = 'Not a valid email'
+		else if (first.has(id))
+			out[i.key] = `Same organization and email as row ${first.get(id)! + 1}`
+		else if (!/^\d*$/.test(i.maximumQuota.trim()))
+			out[i.key] = 'Maximum must be a whole number'
+		else if (i.restrictionKey && !choices.has(i.restrictionKey))
+			out[i.key] = 'Its restriction was removed. Pick another one.'
+		if (!first.has(id)) first.set(id, n)
+	})
+	return out
+}
+
+/**
+ * Pasted lines: tab-separated (copied from a spreadsheet) or comma-separated.
+ * Columns: organization, focal point, email. Empty lines are skipped.
+ */
+export function parseInvitationLines(
+	text: string,
+	restrictionKey: string,
+	nextKey: () => string,
+): SetupInvitation[] {
+	return text
+		.split(/\r?\n/)
+		.map(l => l.trim())
+		.filter(Boolean)
+		.map(line => {
+			const cells = (
+				line.includes('\t') ? line.split('\t') : line.split(',')
+			).map(c => c.trim())
+			// An email in the second column means there's no focal point name.
+			const [organization = '', second = '', third = ''] = cells
+			const [name, email] =
+				!third && EMAIL.test(second) ? ['', second] : [second, third]
+			return {
+				key: nextKey(),
+				organization,
+				name,
+				email,
+				restrictionKey,
+				maximumQuota: '',
+			}
+		})
 }
 
 /** Step names a workflow will have once setup runs, keyed by participant type. */
@@ -242,10 +336,22 @@ export function summarizePlan(ctx: SetupContext, plan: SetupPlan) {
 	)
 	const plural = (n: number, one: string, many = `${one}s`) =>
 		`${n} ${n === 1 ? one : many}`
+	const restrictionName = new Map(
+		restrictionChoices(ctx, plan).map(r => [r.key, r.name]),
+	)
+	const byRestriction = new Map<string, number>()
+	for (const i of plan.invitations) {
+		const name = restrictionName.get(i.restrictionKey) ?? 'no restriction'
+		byRestriction.set(name, (byRestriction.get(name) ?? 0) + 1)
+	}
 
 	return {
 		types: `${plural(plan.types.length, 'type')} of ${ctx.assignableTypeIds.length}`,
 		restrictions: `${plural(plan.restrictions.length, 'restriction')}, ${plural(constraints, 'quota')}`,
+		invitations:
+			plan.invitations.length === 0
+				? 'None. They can be added on the Invitations tab later.'
+				: `${plural(plan.invitations.length, 'invitation')} (${[...byRestriction].map(([k, n]) => `${n} ${k}`).join(', ')})`,
 		workflows:
 			workflows === 0
 				? 'No new workflows'
@@ -280,6 +386,14 @@ function comparable(plan: SetupPlan, key: SetupSectionKey) {
 		return plan.restrictions.map(r => ({
 			name: r.name,
 			constraints: r.constraints.map(({ key: _key, ...c }) => c),
+		}))
+	}
+	if (key === 'invitations') {
+		// Restriction keys are generated too, so compare by restriction position.
+		const at = new Map(plan.restrictions.map((r, n) => [r.key, n]))
+		return plan.invitations.map(({ key: _key, restrictionKey, ...i }) => ({
+			...i,
+			restriction: at.get(restrictionKey) ?? restrictionKey,
 		}))
 	}
 	return plan[key]
@@ -318,6 +432,9 @@ export function sectionSkipReason(ctx: SetupContext, key: SetupSectionKey) {
 	if (key === 'restrictions' && existing.restrictions > 0) {
 		return `This event already has ${existing.restrictions} restriction${existing.restrictions === 1 ? '' : 's'}. Manage them on the Restrictions tab.`
 	}
+	if (key === 'invitations' && existing.invitations > 0) {
+		return `This event already has ${existing.invitations} invitation${existing.invitations === 1 ? '' : 's'}. Manage them on the Invitations tab.`
+	}
 	const typeIds =
 		existing.typeIds.length > 0 ? existing.typeIds : ctx.assignableTypeIds
 	if (
@@ -349,7 +466,7 @@ export function sectionSkipReason(ctx: SetupContext, key: SetupSectionKey) {
 /** Plan mistakes that would stop setup, shown on the Confirm step and checked again on the server. */
 export function planProblems(
 	ctx: SetupContext,
-	plan: Pick<SetupPlan, 'types'> & {
+	plan: Pick<SetupPlan, 'types' | 'invitations'> & {
 		restrictions: {
 			key?: string
 			name: string
@@ -387,6 +504,13 @@ export function planProblems(
 			}
 		}
 	}
+	if (editing || ctx.existing.invitations === 0) {
+		const bad = Object.keys(invitationProblems(ctx, plan as SetupPlan)).length
+		if (bad > 0)
+			problems.push(
+				`${bad} invitation${bad === 1 ? ' needs' : 's need'} fixing on the Invitations step.`,
+			)
+	}
 	if (editing) {
 		// These would fail on the database's unique keys halfway through saving.
 		const names = plan.restrictions.map(r => r.name.trim())
@@ -408,9 +532,9 @@ export function planProblems(
 			if (ctx.existing.typeIds.includes(id) && !kept.has(id))
 				problems.push(`${reason}, so it can't be removed.`)
 		}
-		const keptRestrictions = new Set(plan.restrictions.map(r => r.key))
-		for (const [id, reason] of Object.entries(ctx.locks.restriction)) {
-			if (!keptRestrictions.has(id))
+		const keptInvitations = new Set(plan.invitations.map(i => i.key))
+		for (const [id, reason] of Object.entries(ctx.locks.invitation)) {
+			if (!keptInvitations.has(id))
 				problems.push(`${reason}, so it can't be removed.`)
 		}
 	}
@@ -439,6 +563,18 @@ export function diffSetup(
 		changed: plan.restrictions.filter(r => {
 			const s = savedRestrictions.get(r.key)
 			return s && JSON.stringify(r) !== JSON.stringify(s)
+		}).length,
+	}
+
+	const savedInvitations = new Map(saved.invitations.map(i => [i.key, i]))
+	const planInvitationKeys = new Set(plan.invitations.map(i => i.key))
+	const invitations = {
+		added: plan.invitations.filter(i => !savedInvitations.has(i.key)).length,
+		removed: saved.invitations.filter(i => !planInvitationKeys.has(i.key))
+			.length,
+		changed: plan.invitations.filter(i => {
+			const s = savedInvitations.get(i.key)
+			return s && JSON.stringify(i) !== JSON.stringify(s)
 		}).length,
 	}
 
@@ -472,6 +608,7 @@ export function diffSetup(
 	return {
 		types: { added: typesAdded, removed: typesRemoved },
 		restrictions,
+		invitations,
 		workflows,
 		badges,
 		emails,
@@ -486,6 +623,7 @@ export function editChangeCounts(diff: ReturnType<typeof diffSetup>) {
 	return {
 		types: diff.types.added.length + diff.types.removed.length,
 		restrictions: sum(diff.restrictions),
+		invitations: sum(diff.invitations),
 		workflows: sum(diff.workflows),
 		badges: sum(diff.badges),
 		emails: diff.emails,
@@ -523,6 +661,14 @@ export function summarizeEdit(
 				[d.restrictions.removed, 'removed'],
 			],
 			'Restrictions',
+		),
+		invitations: list(
+			[
+				[d.invitations.added, 'added'],
+				[d.invitations.changed, 'changed'],
+				[d.invitations.removed, 'removed'],
+			],
+			'Invitations',
 		),
 		workflows: list(
 			[
