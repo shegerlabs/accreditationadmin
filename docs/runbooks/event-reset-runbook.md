@@ -371,7 +371,7 @@ the database exactly as it was.
 
 ```bash
 npm run setup-event                    # dry run, prompts for the organ
-npm run setup-event -- --organ=acerwc  # dry run, organ pre-selected
+npm run setup-event -- --organ=pap     # dry run, organ pre-selected
 npm run setup-event -- --confirm       # back up, then purge and seed
 ```
 
@@ -380,19 +380,22 @@ npm run setup-event -- --confirm       # back up, then purge and seed
 The only thing that differs between organs is the **tenant identity** and the
 **participant-type catalogue**. Both live in `scripts/profiles/`:
 
-| File                         | Organ                    | Types                                        |
-| ---------------------------- | ------------------------ | -------------------------------------------- |
-| `scripts/profiles/auc.ts`    | African Union Commission | 28 — captured from the live DB on 2026-09-03 |
-| `scripts/profiles/acerwc.ts` | ACERWC                   | 21                                           |
+| File                      | Organ                  | Types                                 |
+| ------------------------- | ---------------------- | ------------------------------------- |
+| `scripts/profiles/pap.ts` | Pan-African Parliament | 17 supplied on 2026-11-06, plus "Any" |
+
+This deployment serves PAP only; the AU Commission and ACERWC profiles were
+removed on 2026-11-06. `prisma/seed.ts` seeds the tenant and types from the same
+profile.
 
 Add an organ by writing one more profile module and listing it in
 `scripts/profiles/index.ts`. `setup-event` needs no change.
 
 Each profile carries an `unverifiedFields` list. **`setup-event` prints it as a
 warning on every run** until you empty it, so a placeholder cannot silently
-reach production. The ACERWC profile currently flags its contact details,
-per-type priorities and workflow-template assignments as inferred rather than
-supplied — confirm them before a live run.
+reach production. The PAP profile currently flags its contact details, per-type
+priorities and workflow-template assignments as inferred rather than supplied —
+confirm them before a live run.
 
 ### What the run asks you, in order
 

@@ -20,7 +20,7 @@ first write and abort if it fails.
 
 ```bash
 npm run setup-event                      # dry run, prompts for the organ
-npm run setup-event -- --organ=acerwc    # dry run, organ pre-selected
+npm run setup-event -- --organ=pap       # dry run, organ pre-selected
 npm run setup-event -- --confirm         # back up, then purge and seed
 
 npm run reset-for-event                  # dry run
@@ -51,9 +51,9 @@ would silently delete the account it was meant to protect.
   `backup.ts` (the gate), `purge.ts` (what is deleted vs retained), `confirm.ts`
   (the typed confirmation), `verify.ts` (post-run assertions).
 - `profiles/` — one module per organ, holding the **only** things that differ
-  between setups: tenant identity and the participant-type catalogue (`auc.ts`,
-  `acerwc.ts`). Register new organs in `profiles/index.ts`; `setup-event.ts`
-  needs no change.
+  between setups: tenant identity and the participant-type catalogue (`pap.ts`,
+  the Pan-African Parliament). Register new organs in `profiles/index.ts`;
+  `setup-event.ts` needs no change.
 
 Each profile carries an `unverifiedFields` list that `setup-event` prints as a
 warning on every run, so inferred or placeholder values cannot reach production

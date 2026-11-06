@@ -56,7 +56,7 @@ differences, in one transaction (`app/utils/event-setup-edit.server.ts`).
 ## Defaults
 
 - Restrictions: the seed's _Member States_ (Closed Session/Any closed 20, Any
-  open 0) and _Non Member States_ (Observer closed 1, Driver open 1).
+  open 0) and _Non Member States_ (Observers closed 1).
 - Workflows: the organ profile's template per participant type
   (`scripts/profiles/`), "Any" excluded.
 - Badge templates: the tenant's default badge design for every type except

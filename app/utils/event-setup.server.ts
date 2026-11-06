@@ -27,7 +27,7 @@ import {
 /** Roles whose users work on workflow steps. */
 export const STAFF_ROLES = ['reviewer', 'validator', 'printer', 'dispatcher']
 
-/** The seed's restrictions (prisma/seed.ts), by participant type name. */
+/** The seed's restrictions (prisma/seed.ts), by PAP participant type name. */
 const DEFAULT_RESTRICTIONS = [
 	{
 		name: 'Member States',
@@ -41,11 +41,10 @@ const DEFAULT_RESTRICTIONS = [
 		constraints: [
 			{
 				name: 'Closed Session',
-				type: 'Observer',
+				type: 'Observers',
 				accessLevel: 'CLOSED',
 				quota: 1,
 			},
-			{ name: 'Driver', type: 'Driver', accessLevel: 'OPEN', quota: 1 },
 		],
 	},
 ] as const

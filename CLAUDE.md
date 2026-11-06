@@ -42,7 +42,7 @@ npm run reset-password    # Password reset CLI
 
 # Event lifecycle (destructive — see docs/runbooks/event-reset-runbook.md)
 npm run setup-event                     # DRY RUN: purge + seed a new organ's event
-npm run setup-event -- --organ=acerwc   # DRY RUN, organ pre-selected
+npm run setup-event -- --organ=pap      # DRY RUN, organ pre-selected
 npm run setup-event -- --confirm        # Back up, then purge and seed
 npm run reset-for-event                 # DRY RUN: purge only
 npm run reset-for-event -- --confirm    # Back up, then purge
@@ -160,7 +160,8 @@ transaction. Both it and `reset-for-event` are dry-run by default and run
 - `scripts/lib/` - shared target parsing, backup gate, and purge logic
 - `scripts/profiles/` - one module per organ, holding the **only** things that
   differ between setups: tenant identity and the participant-type catalogue
-  (`auc.ts`, `acerwc.ts`). Register new ones in `profiles/index.ts`.
+  (`pap.ts`, the only organ this deployment serves; `prisma/seed.ts` seeds from
+  it too). Register new ones in `profiles/index.ts`.
 
 User retention is an **allow-list of usernames** in `scripts/lib/users.ts`
 (`RETAINED_USERNAMES`), not role-based. Every other account is deleted with its

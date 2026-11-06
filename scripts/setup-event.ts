@@ -3,7 +3,7 @@
 //
 // USAGE:
 //   npm run setup-event                      # DRY RUN (default) - writes nothing
-//   npm run setup-event -- --organ=acerwc    # DRY RUN, skipping the organ prompt
+//   npm run setup-event -- --organ=pap       # DRY RUN, skipping the organ prompt
 //   npm run setup-event -- --confirm         # Back up, then purge and seed
 //
 // WHAT IT ASKS, in order:
