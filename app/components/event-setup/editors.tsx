@@ -14,6 +14,7 @@ import {
 import { Switch } from '~/components/ui/switch'
 import { Textarea } from '~/components/ui/textarea'
 import {
+	KEEP,
 	eventTypeIds,
 	forEventTypes,
 	stepsForUser,
@@ -46,6 +47,7 @@ export function Pick({
 	label,
 	placeholder,
 	className,
+	disabled,
 }: {
 	/** undefined shows the placeholder; '' is the "none" option. */
 	value: string | undefined
@@ -54,11 +56,13 @@ export function Pick({
 	label: string
 	placeholder?: string
 	className?: string
+	disabled?: boolean
 }) {
 	return (
 		<Select
 			value={value === undefined ? '' : value === '' ? NONE : value}
 			onValueChange={v => onChange(v === NONE ? '' : v)}
+			disabled={disabled}
 		>
 			<SelectTrigger aria-label={label} className={cn('h-9', className)}>
 				<SelectValue placeholder={placeholder} />
@@ -95,6 +99,10 @@ function TypesEditor({ ctx, plan, setPlan }: EditorProps) {
 		ctx.assignableTypeIds.includes(t.id),
 	)
 	const selected = new Set(plan.types)
+	const locked = (id: string) =>
+		ctx.mode === 'edit' && ctx.existing.typeIds.includes(id)
+			? ctx.locks.typeRemoval[id]
+			: undefined
 	const setTypes = (ids: string[]) => setPlan(p => ({ ...p, types: ids }))
 	const toggle = (id: string, on: boolean) =>
 		setPlan(p => ({
@@ -108,9 +116,11 @@ function TypesEditor({ ctx, plan, setPlan }: EditorProps) {
 		<div className="flex flex-col gap-3">
 			<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
 				<p className="text-sm text-muted-foreground">
-					{ctx.previousEvent
-						? `Prefilled from ${ctx.previousEvent.name}.`
-						: 'All of the tenant\u2019s types are selected to start.'}{' '}
+					{ctx.mode === 'edit'
+						? 'The event\u2019s saved list.'
+						: ctx.previousEvent
+							? `Prefilled from ${ctx.previousEvent.name}.`
+							: 'All of the tenant\u2019s types are selected to start.'}{' '}
 					<span className="tabular-nums">
 						{selected.size} of {types.length}
 					</span>{' '}
@@ -129,28 +139,47 @@ function TypesEditor({ ctx, plan, setPlan }: EditorProps) {
 						type="button"
 						variant="ghost"
 						size="sm"
-						onClick={() => setTypes([])}
+						// Types that can't be removed stay ticked.
+						onClick={() =>
+							setTypes(ctx.assignableTypeIds.filter(id => locked(id)))
+						}
 					>
 						Clear
 					</Button>
 				</div>
 			</div>
 			<ul className="grid gap-x-4 rounded-lg border p-2 sm:grid-cols-2 lg:grid-cols-3">
-				{types.map(t => (
-					<li key={t.id}>
-						<label className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50">
-							<Checkbox
-								checked={selected.has(t.id)}
-								onCheckedChange={v => toggle(t.id, v === true)}
-							/>
-							<span className="truncate">{t.name}</span>
-						</label>
-					</li>
-				))}
+				{types.map(t => {
+					const reason = selected.has(t.id) ? locked(t.id) : undefined
+					return (
+						<li key={t.id}>
+							<label
+								className={cn(
+									'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm',
+									reason
+										? 'cursor-not-allowed'
+										: 'cursor-pointer hover:bg-muted/50',
+								)}
+								title={
+									reason ? `${reason}, so it can\u2019t be removed.` : undefined
+								}
+							>
+								<Checkbox
+									checked={selected.has(t.id)}
+									disabled={Boolean(reason)}
+									onCheckedChange={v => toggle(t.id, v === true)}
+								/>
+								<span className="truncate">{t.name}</span>
+							</label>
+						</li>
+					)
+				})}
 			</ul>
 			<p className="text-xs text-muted-foreground">
 				Quotas can also use &ldquo;Any&rdquo;, which covers every type selected
 				here.
+				{ctx.mode === 'edit' &&
+					' Unticking a type also removes its workflow and badge template. Types with participants or invitations can\u2019t be unticked.'}
 			</p>
 		</div>
 	)
@@ -183,6 +212,13 @@ function RestrictionsEditor({ ctx, plan, setPlan }: EditorProps) {
 
 	return (
 		<div className="flex flex-col gap-4">
+			{ctx.mode === 'edit' && (
+				<p className="text-sm text-muted-foreground">
+					Invitations keep the quotas they were given, so changes here only
+					apply to invitations added from now on. A restriction with invitations
+					can&rsquo;t be removed.
+				</p>
+			)}
 			{plan.restrictions.length === 0 && (
 				<p className="text-sm text-muted-foreground">
 					No restrictions. Invitations will have no quotas until you add some.
@@ -199,11 +235,20 @@ function RestrictionsEditor({ ctx, plan, setPlan }: EditorProps) {
 							}
 							className="h-9 max-w-xs bg-background font-medium"
 						/>
+						{ctx.locks.restriction[r.key] && (
+							<span className="ml-auto text-xs text-muted-foreground">
+								{ctx.locks.restriction[r.key]}
+							</span>
+						)}
 						<Button
 							type="button"
 							variant="ghost"
 							size="sm"
-							className="ml-auto text-muted-foreground"
+							className={cn(
+								'text-muted-foreground',
+								!ctx.locks.restriction[r.key] && 'ml-auto',
+							)}
+							disabled={Boolean(ctx.locks.restriction[r.key])}
 							onClick={() =>
 								setPlan(p => ({
 									...p,
@@ -368,17 +413,50 @@ function PerTypeEditor({
 		),
 		{ value: '', label: field === 'workflows' ? 'No workflow' : 'No badge' },
 	]
+	const editing = ctx.mode === 'edit'
+	const has = (id: string) =>
+		field === 'workflows'
+			? ctx.existing.workflows.some(w => w.participantTypeId === id)
+			: ctx.existing.badgeTypeIds.includes(id)
+	/** Why a type's workflow is fixed: it has participants. */
+	const lockedReason = (id: string) =>
+		editing && field === 'workflows' && has(id)
+			? ctx.locks.workflow[id]
+			: undefined
+	const optionsFor = (id: string) => {
+		if (!editing || !has(id)) return options
+		// A badge row is kept and repointed, so "keep" only matters when its design is gone.
+		const keep =
+			field === 'workflows'
+				? [
+						{
+							value: KEEP,
+							label: `Keep current (${ctx.saved.workflowNames[id] ?? 'workflow'})`,
+						},
+					]
+				: plan.badges[id] === KEEP
+					? [{ value: KEEP, label: 'Keep current' }]
+					: []
+		// A badge with uploaded files can be switched but not removed.
+		const rest =
+			field === 'badges' && ctx.locks.badge[id]
+				? options.filter(o => o.value)
+				: options
+		return [...keep, ...rest]
+	}
 	const typeIds = Object.keys(forEventTypes(ctx, plan, plan[field]))
 	const types = ctx.participantTypes.filter(t => typeIds.includes(t.id))
 	const skipped = eventTypeIds(ctx, plan).size - types.length
 	const values = typeIds.map(id => plan[field][id])
 	const uniform = values.every(v => v === values[0]) ? values[0] : undefined
+	const settable = typeIds.filter(id => !lockedReason(id))
 
 	return (
 		<div className="flex flex-col gap-3">
 			<div className={cn(ROW, 'rounded-lg border bg-muted/40 py-2')}>
 				<span className="text-sm font-medium">
-					Set all {types.length} {types.length === 1 ? 'type' : 'types'} to
+					Set all {settable.length} {settable.length === 1 ? 'type' : 'types'}{' '}
+					to
 				</span>
 				<Pick
 					label="Set every participant type"
@@ -390,13 +468,20 @@ function PerTypeEditor({
 							...p,
 							[field]: {
 								...p[field],
-								...Object.fromEntries(typeIds.map(k => [k, v])),
+								...Object.fromEntries(settable.map(k => [k, v])),
 							},
 						}))
 					}
 					className="w-full bg-background"
 				/>
 			</div>
+			{editing && (
+				<p className="text-sm text-muted-foreground">
+					{field === 'workflows'
+						? 'Picking a template replaces the type\u2019s workflow, including any changes made to it on the Workflows tab, and the staff access on its steps is set again from the Staff access step. Types with participants keep theirs.'
+						: 'Picking a different design keeps the type\u2019s badge template and points it at that design.'}
+				</p>
+			)}
 			{skipped > 0 && (
 				<p className="text-sm text-muted-foreground">
 					{skipped} {skipped === 1 ? 'type already has' : 'types already have'}{' '}
@@ -415,15 +500,23 @@ function PerTypeEditor({
 						>
 							{t.name}
 						</span>
-						<Pick
-							label={`${field === 'workflows' ? 'Workflow' : 'Badge'} for ${t.name}`}
-							value={plan[field][t.id] ?? ''}
-							options={options}
-							onChange={v =>
-								setPlan(p => ({ ...p, [field]: { ...p[field], [t.id]: v } }))
-							}
-							className="w-full"
-						/>
+						<div className="flex flex-col gap-1">
+							<Pick
+								label={`${field === 'workflows' ? 'Workflow' : 'Badge'} for ${t.name}`}
+								value={plan[field][t.id] ?? ''}
+								options={optionsFor(t.id)}
+								disabled={Boolean(lockedReason(t.id))}
+								onChange={v =>
+									setPlan(p => ({ ...p, [field]: { ...p[field], [t.id]: v } }))
+								}
+								className="w-full"
+							/>
+							{lockedReason(t.id) && (
+								<span className="text-xs text-muted-foreground">
+									{lockedReason(t.id)}, so its workflow can&rsquo;t be replaced.
+								</span>
+							)}
+						</div>
 					</li>
 				))}
 			</ul>
@@ -436,12 +529,19 @@ function EmailsEditor({ ctx, plan, setPlan }: EditorProps) {
 	const skipped = ctx.existing.emailTriggers.length
 	return (
 		<div className="flex flex-col gap-3">
-			{skipped > 0 && (
+			{ctx.mode === 'edit' ? (
 				<p className="text-sm text-muted-foreground">
-					{skipped} {skipped === 1 ? 'email was' : 'emails were'} already
-					customised for this event and {skipped === 1 ? 'is' : 'are'} left as{' '}
-					{skipped === 1 ? 'it is' : 'they are'}.
+					Each email shows what is saved for this event. Putting one back to the
+					default text removes its customisation.
 				</p>
+			) : (
+				skipped > 0 && (
+					<p className="text-sm text-muted-foreground">
+						{skipped} {skipped === 1 ? 'email was' : 'emails were'} already
+						customised for this event and {skipped === 1 ? 'is' : 'are'} left as{' '}
+						{skipped === 1 ? 'it is' : 'they are'}.
+					</p>
+				)
 			)}
 			<ul className="flex flex-col divide-y rounded-lg border">
 				{triggers.map(trigger => (
@@ -540,12 +640,20 @@ function EmailRow({
 function AccessEditor({ ctx, plan, setPlan }: EditorProps) {
 	return (
 		<div className="flex flex-col gap-3">
-			{ctx.existing.accessRows > 0 && (
+			{ctx.mode === 'edit' ? (
 				<p className="text-sm text-muted-foreground">
-					The event already has {ctx.existing.accessRows} access{' '}
-					{ctx.existing.accessRows === 1 ? 'row' : 'rows'}. These are kept, and
-					anything below that duplicates them is skipped.
+					Each person shows the step they work on most in this event. Changing
+					it replaces their step access in this event; people you don&rsquo;t
+					change keep theirs.
 				</p>
+			) : (
+				ctx.existing.accessRows > 0 && (
+					<p className="text-sm text-muted-foreground">
+						The event already has {ctx.existing.accessRows} access{' '}
+						{ctx.existing.accessRows === 1 ? 'row' : 'rows'}. These are kept,
+						and anything below that duplicates them is skipped.
+					</p>
+				)
 			)}
 			<div className="overflow-x-auto rounded-lg border">
 				<table className="w-full text-sm">
@@ -570,6 +678,11 @@ function AccessEditor({ ctx, plan, setPlan }: EditorProps) {
 										<div className="text-xs text-muted-foreground">
 											{user.username}
 										</div>
+										{(ctx.saved.accessSteps[user.id] ?? 0) > 1 && (
+											<div className="text-xs text-muted-foreground">
+												Now on {ctx.saved.accessSteps[user.id]} different steps
+											</div>
+										)}
 									</td>
 									<td className="px-3 py-2 capitalize">
 										{user.roles.join(', ')}

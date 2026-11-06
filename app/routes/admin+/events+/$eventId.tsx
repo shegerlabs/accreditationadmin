@@ -147,7 +147,9 @@ export default function EventDetailsRoute() {
 							<Button asChild variant="outline" size="sm">
 								<Link to={`/admin/events/${event.id}/setup`}>
 									<ListChecks className="mr-2 h-4 w-4" />
-									Set up
+									{event.status === 'DRAFT' && types.hasList
+										? 'Edit setup'
+										: 'Set up'}
 								</Link>
 							</Button>
 						)}

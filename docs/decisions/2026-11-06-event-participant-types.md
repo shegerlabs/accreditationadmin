@@ -60,7 +60,12 @@ and quotas, written in one transaction.
 - A banner on the event page names listed types missing a workflow or a badge
   template, each linking to the wizard for that type.
 
+## Removing a type
+
+Only while the event is a draft, through **Edit setup**: unticking a type
+removes it with its workflow and badge template, unless it has participants,
+invitations or invitation quotas (see `2026-11-06-event-setup-wizard.md`).
+
 ## Not yet
 
-- Removing a type from an event's list, and editing setup while the event is a
-  draft.
+- Removing a type from a published event's list.

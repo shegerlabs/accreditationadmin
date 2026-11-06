@@ -95,10 +95,19 @@ export async function profileWorkflowTemplates(tenantId: string) {
 	)
 }
 
+/** A draft that already has a type list is edited; anything else gets the fill-in-the-gaps setup. */
+export function setupMode(
+	status: string,
+	typeCount: number,
+): SetupContext['mode'] {
+	return status === 'DRAFT' && typeCount > 0 ? 'edit' : 'create'
+}
+
 export async function loadSetupContext(event: {
 	id: string
 	name: string
 	tenantId: string
+	status: string
 }): Promise<SetupContext> {
 	const [
 		types,
@@ -185,8 +194,17 @@ export async function loadSetupContext(event: {
 		}),
 	])
 
+	const mode = setupMode(event.status, eventTypes.length)
+	const typeNames = new Map(types.map(t => [t.id, t.name]))
 	return {
 		event: { id: event.id, name: event.name },
+		mode,
+		...(mode === 'edit'
+			? await loadEditState(event.id, typeNames)
+			: {
+					locks: { typeRemoval: {}, workflow: {}, badge: {}, restriction: {} },
+					saved: { workflowNames: {}, accessSteps: {} },
+				}),
 		participantTypes: types,
 		assignableTypeIds: types
 			.filter(t => !NON_WORKFLOW_PARTICIPANT_TYPES.includes(t.name))
@@ -217,6 +235,114 @@ export async function loadSetupContext(event: {
 			badgeTypeIds: [...new Set(badges.map(b => b.participantTypeId))],
 			emailTriggers: emails.map(e => e.trigger as EmailTrigger),
 			accessRows,
+		},
+	}
+}
+
+/**
+ * What stops a draft's setup from being changed: removing a restriction deletes
+ * its invitations, and removing a workflow deletes the participants on its
+ * steps (both cascade), so those are refused rather than done quietly.
+ */
+async function loadEditState(eventId: string, typeNames: Map<string, string>) {
+	const [
+		participants,
+		invitations,
+		invitationQuotas,
+		restrictions,
+		badges,
+		workflows,
+		access,
+	] = await Promise.all([
+		prisma.participant.groupBy({
+			by: ['participantTypeId'],
+			where: { eventId },
+			_count: true,
+		}),
+		prisma.invitation.groupBy({
+			by: ['participantTypeId'],
+			where: { eventId, participantTypeId: { not: null } },
+			_count: true,
+		}),
+		prisma.invitationConstraint.groupBy({
+			by: ['participantTypeId'],
+			where: { invitation: { eventId } },
+			_count: true,
+		}),
+		prisma.restriction.findMany({
+			where: { eventId },
+			select: {
+				id: true,
+				name: true,
+				_count: { select: { invitations: true } },
+			},
+		}),
+		prisma.template.findMany({
+			where: { eventId, templateType: 'BADGE' },
+			select: {
+				participantTypeId: true,
+				_count: { select: { attachments: true } },
+			},
+		}),
+		prisma.workflow.findMany({
+			where: { eventId },
+			select: { participantTypeId: true, name: true },
+			orderBy: { createdAt: 'asc' },
+		}),
+		prisma.userEventAccess.findMany({
+			where: { eventId, stepId: { not: null } },
+			select: { userId: true, step: { select: { name: true } } },
+		}),
+	])
+	const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+	const name = (id: string | null) => typeNames.get(id ?? '') ?? 'This type'
+
+	const locks: SetupContext['locks'] = {
+		typeRemoval: {},
+		workflow: {},
+		badge: {},
+		restriction: {},
+	}
+	for (const p of participants) {
+		const reason = `${name(p.participantTypeId)} has ${plural(p._count, 'participant')}`
+		locks.typeRemoval[p.participantTypeId] = reason
+		locks.workflow[p.participantTypeId] = reason
+	}
+	for (const i of invitations) {
+		locks.typeRemoval[i.participantTypeId!] ??=
+			`${name(i.participantTypeId)} is the type of ${plural(i._count, 'invitation')}`
+	}
+	for (const q of invitationQuotas) {
+		locks.typeRemoval[q.participantTypeId] ??=
+			`${name(q.participantTypeId)} has quotas in ${plural(q._count, 'invitation')}`
+	}
+	for (const r of restrictions) {
+		if (r._count.invitations > 0)
+			locks.restriction[r.id] =
+				`${r.name} is used by ${plural(r._count.invitations, 'invitation')}`
+	}
+	for (const b of badges) {
+		if (b._count.attachments > 0)
+			locks.badge[b.participantTypeId] =
+				`${name(b.participantTypeId)}'s badge template has uploaded files`
+	}
+
+	const stepNames = new Map<string, Set<string>>()
+	for (const a of access) {
+		if (!a.step) continue
+		const names = stepNames.get(a.userId) ?? new Set<string>()
+		names.add(a.step.name)
+		stepNames.set(a.userId, names)
+	}
+	return {
+		locks,
+		saved: {
+			workflowNames: Object.fromEntries(
+				workflows.map(w => [w.participantTypeId, w.name]),
+			),
+			accessSteps: Object.fromEntries(
+				[...stepNames].map(([userId, names]) => [userId, names.size]),
+			),
 		},
 	}
 }
@@ -362,9 +488,12 @@ const PlanSchema = z.object({
 	types: z.array(z.string()),
 	restrictions: z.array(
 		z.object({
+			/** Edit mode: the saved restriction's id; a new one has a client key. */
+			key: z.string().optional(),
 			name: z.string().trim().min(1, 'Every restriction needs a name'),
 			constraints: z.array(
 				z.object({
+					key: z.string().optional(),
 					name: z.string().trim().min(1, 'Every quota needs a name'),
 					participantTypeId: z.string(),
 					accessLevel: z.enum(['OPEN', 'CLOSED']),
@@ -385,6 +514,8 @@ const PlanSchema = z.object({
 	access: z.array(z.object({ userId: z.string(), stepName: z.string() })),
 })
 
+export type ParsedPlan = z.infer<typeof PlanSchema>
+
 export function parsePlan(raw: unknown) {
 	return PlanSchema.safeParse(raw)
 }
@@ -404,7 +535,7 @@ export type SetupResult = {
  * and every id is checked against the event's tenant before use.
  */
 export async function applySetup(
-	plan: z.infer<typeof PlanSchema>,
+	plan: ParsedPlan,
 	event: { id: string; tenantId: string },
 	userId: string,
 ): Promise<SetupResult> {

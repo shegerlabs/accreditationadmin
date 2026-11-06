@@ -19,6 +19,7 @@ import { validateCSRF } from '~/utils/csrf.server'
 import {
 	SETUP_SECTIONS,
 	isSectionChanged,
+	summarizeEdit,
 	planProblems,
 	resetSection,
 	sectionSkipReason,
@@ -32,6 +33,13 @@ import {
 	parsePlan,
 	requireSetupEvent,
 } from '~/utils/event-setup.server'
+import {
+	type EditResult,
+	SetupEditError,
+	applySetupEdit,
+	buildSavedPlan,
+	planVersion,
+} from '~/utils/event-setup-edit.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { cn, useIsPending } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
@@ -39,9 +47,34 @@ import { redirectWithToast } from '~/utils/toast.server'
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { event } = await requireSetupEvent(request, params.eventId)
 	const ctx = await loadSetupContext(event)
-	const defaults = await buildDefaultPlan(ctx, event)
-	return json({ ctx, defaults })
+	// Editing a draft compares against, and resets to, what is saved.
+	const defaults =
+		ctx.mode === 'edit'
+			? await buildSavedPlan(ctx, event)
+			: await buildDefaultPlan(ctx, event)
+	const version = ctx.mode === 'edit' ? planVersion(defaults) : ''
+	return json({ ctx, defaults, version })
 }
+
+const EDIT_LABELS = {
+	typesAdded: 'type(s) added',
+	typesRemoved: 'type(s) removed',
+	restrictionsAdded: 'restriction(s) added',
+	restrictionsChanged: 'restriction(s) changed',
+	restrictionsRemoved: 'restriction(s) removed',
+	workflowsAdded: 'workflow(s) added',
+	workflowsReplaced: 'workflow(s) replaced',
+	workflowsRemoved: 'workflow(s) removed',
+	badgesAdded: 'badge template(s) added',
+	badgesChanged: 'badge template(s) changed',
+	badgesRemoved: 'badge template(s) removed',
+	emails: 'email(s) changed',
+	accessChanged: "staff member(s)' step changed",
+	accessRows: 'access row(s) created',
+} satisfies Record<keyof EditResult, string>
+
+const STALE =
+	"This event's setup changed since you opened this page. Reload it to see the current setup, then make your changes again."
 
 export async function action({ request, params }: ActionFunctionArgs) {
 	const { user, event } = await requireSetupEvent(request, params.eventId)
@@ -71,8 +104,44 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		)
 	}
 
-	const problem = planProblems(await loadSetupContext(event), parsed.data)[0]
+	const ctx = await loadSetupContext(event)
+	if ((formData.get('mode') ?? 'create') !== ctx.mode)
+		return json({ error: STALE }, { status: 409 })
+
+	const problem = planProblems(ctx, parsed.data)[0]
 	if (problem) return json({ error: problem }, { status: 400 })
+
+	if (ctx.mode === 'edit') {
+		const saved = await buildSavedPlan(ctx, event)
+		if (formData.get('version') !== planVersion(saved))
+			return json({ error: STALE }, { status: 409 })
+		let result
+		try {
+			result = await applySetupEdit(parsed.data, saved, ctx, event, user.id)
+		} catch (error) {
+			if (error instanceof SetupEditError)
+				return json({ error: error.message }, { status: 400 })
+			throw error
+		}
+		const changes = Object.entries(result)
+			.filter(([, n]) => n > 0)
+			.map(([k, n]) => `${n} ${EDIT_LABELS[k as keyof typeof result]}`)
+		await auditRequest({
+			request,
+			action: AuditAction.UPDATE,
+			entityType: AuditEntityType.EVENT,
+			entityId: event.id,
+			description: `Edited the setup of draft event "${event.name}": ${changes.join(', ') || 'no changes'}`,
+			userId: user.id,
+			tenantId: event.tenantId,
+			metadata: { eventId: event.id, ...result },
+		})
+		return redirectWithToast(`/admin/events/${event.id}`, {
+			type: 'success',
+			title: 'Setup saved',
+			description: "The event's setup was updated.",
+		})
+	}
 
 	const result = await applySetup(parsed.data, event, user.id)
 
@@ -98,13 +167,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function EventSetupRoute() {
-	const { ctx, defaults } = useLoaderData<typeof loader>()
+	const { ctx, defaults, version } = useLoaderData<typeof loader>()
+	const editing = ctx.mode === 'edit'
 	const actionData = useActionData<typeof action>()
 	const [plan, setPlan] = useState<SetupPlan>(defaults)
 	const [i, setI] = useState(0)
 	const [seen, setSeen] = useState(0)
 	const isPending = useIsPending()
-	const summary = summarizePlan(ctx, plan)
+	const edit = editing ? summarizeEdit(ctx, defaults, plan) : null
+	const summary = edit ?? summarizePlan(ctx, plan)
+	const sectionChanged = (key: (typeof SETUP_SECTIONS)[number]['key']) =>
+		edit ? edit.counts[key] > 0 : isSectionChanged(plan, defaults, key)
 	const step = SETUP_SECTIONS[i]
 	const go = (n: number) => {
 		setI(n)
@@ -112,7 +185,7 @@ export default function EventSetupRoute() {
 		window.scrollTo({ top: 0 })
 	}
 	const active = SETUP_SECTIONS.filter(s => !sectionSkipReason(ctx, s.key))
-	const changed = active.filter(s => isSectionChanged(plan, defaults, s.key))
+	const changed = active.filter(s => sectionChanged(s.key))
 	const skipReason = step ? sectionSkipReason(ctx, step.key) : null
 	const problems = planProblems(ctx, plan)
 
@@ -120,7 +193,9 @@ export default function EventSetupRoute() {
 		<div className="flex flex-col gap-4">
 			<div className="flex items-center justify-between gap-4">
 				<div className="min-w-0">
-					<p className="text-sm text-muted-foreground">Set up event</p>
+					<p className="text-sm text-muted-foreground">
+						{editing ? 'Edit setup (draft)' : 'Set up event'}
+					</p>
 					<h1 className="truncate text-xl font-semibold">{ctx.event.name}</h1>
 				</div>
 				<Button asChild variant="outline" size="sm">
@@ -157,7 +232,9 @@ export default function EventSetupRoute() {
 						<p className="text-sm text-muted-foreground">
 							{step
 								? step.help
-								: 'Check the summary on the right, then create everything in one go.'}
+								: editing
+									? 'Check the changes on the right, then save them in one go.'
+									: 'Check the summary on the right, then create everything in one go.'}
 						</p>
 					</header>
 
@@ -178,18 +255,32 @@ export default function EventSetupRoute() {
 						) : (
 							<div className="flex flex-col gap-4">
 								<p className="max-w-prose text-sm">
-									{changed.length === 0
-										? 'You kept every default.'
-										: `You changed ${changed.length} of ${active.length} sections from the defaults: ${changed
-												.map(c => c.title.toLowerCase())
-												.join(', ')}.`}
+									{editing
+										? changed.length === 0
+											? 'Nothing has changed yet.'
+											: `You changed ${changed.length} of ${active.length} sections: ${changed
+													.map(c => c.title.toLowerCase())
+													.join(', ')}.`
+										: changed.length === 0
+											? 'You kept every default.'
+											: `You changed ${changed.length} of ${active.length} sections from the defaults: ${changed
+													.map(c => c.title.toLowerCase())
+													.join(', ')}.`}
 								</p>
-								<p className="max-w-prose text-sm text-muted-foreground">
-									Invitations aren&rsquo;t part of setup: each one is an
-									organization&rsquo;s focal point, so there is no default list.
-									Add or import them on the Invitations tab afterwards. They
-									draw on the restrictions created here.
-								</p>
+								{editing ? (
+									<p className="max-w-prose text-sm text-muted-foreground">
+										Invitations aren&rsquo;t changed: each keeps the quotas it
+										was given. Edit an invitation&rsquo;s quotas on the
+										Invitations tab.
+									</p>
+								) : (
+									<p className="max-w-prose text-sm text-muted-foreground">
+										Invitations aren&rsquo;t part of setup: each one is an
+										organization&rsquo;s focal point, so there is no default
+										list. Add or import them on the Invitations tab afterwards.
+										They draw on the restrictions created here.
+									</p>
+								)}
 								{problems.length > 0 && (
 									<ul
 										role="alert"
@@ -235,14 +326,25 @@ export default function EventSetupRoute() {
 								<AuthenticityTokenInput />
 								<HoneypotInputs />
 								<input type="hidden" name="plan" value={JSON.stringify(plan)} />
+								<input type="hidden" name="mode" value={ctx.mode} />
+								<input type="hidden" name="version" value={version} />
 								<Button
 									type="submit"
 									disabled={
-										isPending || active.length === 0 || problems.length > 0
+										isPending ||
+										active.length === 0 ||
+										problems.length > 0 ||
+										(editing && changed.length === 0)
 									}
 									className="active:scale-[0.97]"
 								>
-									{isPending ? 'Setting up…' : 'Set up event'}
+									{editing
+										? isPending
+											? 'Saving…'
+											: 'Save changes'
+										: isPending
+											? 'Setting up…'
+											: 'Set up event'}
 								</Button>
 							</Form>
 						)}
@@ -251,17 +353,16 @@ export default function EventSetupRoute() {
 
 				<aside
 					className="lg:sticky lg:top-4 lg:self-start"
-					aria-label="What will be created"
+					aria-label={editing ? 'Changes to save' : 'What will be created'}
 				>
 					<div className="rounded-lg border bg-card">
 						<h3 className="border-b px-4 py-3 text-sm font-semibold">
-							Will be created
+							{editing ? 'Changes to save' : 'Will be created'}
 						</h3>
 						<ol className="divide-y">
 							{SETUP_SECTIONS.map((sec, n) => {
 								const skipped = sectionSkipReason(ctx, sec.key)
-								const isChanged =
-									!skipped && isSectionChanged(plan, defaults, sec.key)
+								const isChanged = !skipped && sectionChanged(sec.key)
 								return (
 									<li
 										key={sec.key}
@@ -290,11 +391,15 @@ export default function EventSetupRoute() {
 												</span>
 											) : (
 												<span className="text-xs text-muted-foreground">
-													{n <= seen ? 'Default' : 'Not reviewed'}
+													{editing
+														? 'No changes'
+														: n <= seen
+															? 'Default'
+															: 'Not reviewed'}
 												</span>
 											)}
 										</div>
-										{!skipped && (
+										{!skipped && summary[sec.key] && (
 											<p className="text-xs text-muted-foreground">
 												{summary[sec.key]}
 											</p>
@@ -308,14 +413,16 @@ export default function EventSetupRoute() {
 												className="flex items-center gap-1 self-start rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 											>
 												<RotateCcw className="h-3 w-3" aria-hidden />
-												Reset to default
+												{editing ? 'Undo changes' : 'Reset to default'}
 											</button>
 										)}
 									</li>
 								)
 							})}
 							<li className="px-4 py-3 text-xs text-muted-foreground">
-								Invitations: after setup
+								{editing
+									? 'Invitations: not changed'
+									: 'Invitations: after setup'}
 							</li>
 						</ol>
 					</div>

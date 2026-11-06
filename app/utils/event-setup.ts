@@ -43,8 +43,39 @@ export const SETUP_SECTIONS = [
 
 export type SetupSectionKey = (typeof SETUP_SECTIONS)[number]['key']
 
+/**
+ * A plan value meaning "keep what the event has": the type's current workflow
+ * or badge template. Only used when editing a draft's setup.
+ */
+export const KEEP = '__current'
+
 export type SetupContext = {
 	event: { id: string; name: string }
+	/**
+	 * `create` fills in what the event doesn't have yet and never touches the
+	 * rest. `edit` (a draft that has been set up) loads the saved setup and
+	 * saves the differences.
+	 */
+	mode: 'create' | 'edit'
+	/**
+	 * Edit mode: why something can't be removed or replaced, by id, as a clause
+	 * like "Delegate has 2 participants". Empty in create mode.
+	 */
+	locks: {
+		/** participantTypeId -> why it can't be taken off the event's list. */
+		typeRemoval: Record<string, string>
+		/** participantTypeId -> why its workflow can't be replaced or removed. */
+		workflow: Record<string, string>
+		/** participantTypeId -> why its badge template can't be removed. */
+		badge: Record<string, string>
+		/** restrictionId -> why it can't be removed. */
+		restriction: Record<string, string>
+	}
+	/** Edit mode: the current workflow's name per participant type, and how many step names each person has. */
+	saved: {
+		workflowNames: Record<string, string>
+		accessSteps: Record<string, number>
+	}
 	participantTypes: { id: string; name: string }[]
 	/** Types that can get a workflow and a badge: everything except "Any". */
 	assignableTypeIds: string[]
@@ -103,9 +134,14 @@ export type SetupPlan = {
 }
 
 /** The event's participant types once setup runs: the saved list, or the one being picked. */
-export function eventTypeIds(ctx: SetupContext, plan: SetupPlan) {
+export function eventTypeIds(
+	ctx: SetupContext,
+	plan: Pick<SetupPlan, 'types'>,
+) {
 	return new Set(
-		ctx.existing.typeIds.length > 0 ? ctx.existing.typeIds : plan.types,
+		ctx.mode === 'create' && ctx.existing.typeIds.length > 0
+			? ctx.existing.typeIds
+			: plan.types,
 	)
 }
 
@@ -122,12 +158,24 @@ export function forEventTypes(
 /** Step names a workflow will have once setup runs, keyed by participant type. */
 function effectiveWorkflows(ctx: SetupContext, plan: SetupPlan) {
 	const result = new Map<string, { name: string; role: string }[]>()
-	for (const w of ctx.existing.workflows)
-		result.set(w.participantTypeId, w.steps)
+	if (ctx.mode === 'edit') {
+		// Only kept workflows stay; a replaced one gets the template's steps below.
+		const ids = eventTypeIds(ctx, plan)
+		for (const w of ctx.existing.workflows) {
+			if (
+				ids.has(w.participantTypeId) &&
+				plan.workflows[w.participantTypeId] === KEEP
+			)
+				result.set(w.participantTypeId, w.steps)
+		}
+	} else {
+		for (const w of ctx.existing.workflows)
+			result.set(w.participantTypeId, w.steps)
+	}
 	for (const [typeId, templateId] of Object.entries(
 		forEventTypes(ctx, plan, plan.workflows),
 	)) {
-		if (!templateId || result.has(typeId)) continue
+		if (!templateId || templateId === KEEP || result.has(typeId)) continue
 		const template = ctx.workflowTemplates.find(t => t.id === templateId)
 		if (template) result.set(typeId, template.steps)
 	}
@@ -259,6 +307,11 @@ export function resetSection(
 /** Why a section has nothing to do, or null when setup will write to it. */
 export function sectionSkipReason(ctx: SetupContext, key: SetupSectionKey) {
 	const { existing } = ctx
+	if (ctx.mode === 'edit') {
+		return key === 'access' && ctx.staff.length === 0
+			? 'This tenant has no validator, printer or dispatcher accounts yet.'
+			: null
+	}
 	if (key === 'types' && existing.typeIds.length > 0) {
 		return `This event already uses ${existing.typeIds.length} participant type${existing.typeIds.length === 1 ? '' : 's'}.`
 	}
@@ -298,18 +351,25 @@ export function planProblems(
 	ctx: SetupContext,
 	plan: Pick<SetupPlan, 'types'> & {
 		restrictions: {
+			key?: string
 			name: string
-			constraints: { name: string; participantTypeId: string }[]
+			constraints: {
+				name: string
+				participantTypeId: string
+				accessLevel: 'OPEN' | 'CLOSED'
+			}[]
 		}[]
 	},
 ) {
 	const problems: string[] = []
-	if (ctx.existing.typeIds.length === 0 && plan.types.length === 0) {
+	const editing = ctx.mode === 'edit'
+	if (
+		(editing || ctx.existing.typeIds.length === 0) &&
+		plan.types.length === 0
+	) {
 		problems.push('Pick at least one participant type for this event.')
 	}
-	const ids = new Set(
-		ctx.existing.typeIds.length > 0 ? ctx.existing.typeIds : plan.types,
-	)
+	const ids = eventTypeIds(ctx, plan)
 	const anyIds = new Set(
 		ctx.participantTypes
 			.filter(t => !ctx.assignableTypeIds.includes(t.id))
@@ -317,7 +377,7 @@ export function planProblems(
 	)
 	const typeName = (id: string) =>
 		ctx.participantTypes.find(t => t.id === id)?.name ?? 'an unknown type'
-	if (ctx.existing.restrictions === 0) {
+	if (editing || ctx.existing.restrictions === 0) {
 		for (const r of plan.restrictions) {
 			for (const c of r.constraints) {
 				if (!ids.has(c.participantTypeId) && !anyIds.has(c.participantTypeId))
@@ -327,5 +387,164 @@ export function planProblems(
 			}
 		}
 	}
+	if (editing) {
+		// These would fail on the database's unique keys halfway through saving.
+		const names = plan.restrictions.map(r => r.name.trim())
+		for (const name of new Set(names.filter((n, i) => names.indexOf(n) !== i)))
+			problems.push(`There are two restrictions called "${name}".`)
+		for (const r of plan.restrictions) {
+			const seen = new Set<string>()
+			for (const c of r.constraints) {
+				const slot = `${c.participantTypeId}:${c.accessLevel}`
+				if (seen.has(slot))
+					problems.push(
+						`${r.name} has two ${c.accessLevel === 'OPEN' ? 'open' : 'closed'} session quotas for ${typeName(c.participantTypeId)}.`,
+					)
+				seen.add(slot)
+			}
+		}
+		const kept = new Set(plan.types)
+		for (const [id, reason] of Object.entries(ctx.locks.typeRemoval)) {
+			if (ctx.existing.typeIds.includes(id) && !kept.has(id))
+				problems.push(`${reason}, so it can't be removed.`)
+		}
+		const keptRestrictions = new Set(plan.restrictions.map(r => r.key))
+		for (const [id, reason] of Object.entries(ctx.locks.restriction)) {
+			if (!keptRestrictions.has(id))
+				problems.push(`${reason}, so it can't be removed.`)
+		}
+	}
 	return problems
+}
+
+/**
+ * Edit mode: what saving would change, compared with the saved setup. The
+ * server works the same differences out again from the database before writing.
+ */
+export function diffSetup(
+	ctx: SetupContext,
+	saved: SetupPlan,
+	plan: SetupPlan,
+) {
+	const before = new Set(saved.types)
+	const after = new Set(plan.types)
+	const typesAdded = plan.types.filter(id => !before.has(id))
+	const typesRemoved = saved.types.filter(id => !after.has(id))
+
+	const savedRestrictions = new Map(saved.restrictions.map(r => [r.key, r]))
+	const planKeys = new Set(plan.restrictions.map(r => r.key))
+	const restrictions = {
+		added: plan.restrictions.filter(r => !savedRestrictions.has(r.key)).length,
+		removed: saved.restrictions.filter(r => !planKeys.has(r.key)).length,
+		changed: plan.restrictions.filter(r => {
+			const s = savedRestrictions.get(r.key)
+			return s && JSON.stringify(r) !== JSON.stringify(s)
+		}).length,
+	}
+
+	const hasWorkflow = new Set(
+		ctx.existing.workflows.map(w => w.participantTypeId),
+	)
+	const workflows = { added: 0, replaced: 0, removed: 0 }
+	const hasBadge = new Set(ctx.existing.badgeTypeIds)
+	const badges = { added: 0, changed: 0, removed: 0 }
+	for (const id of plan.types) {
+		const w = plan.workflows[id] ?? ''
+		if (w !== KEEP) {
+			if (hasWorkflow.has(id)) workflows[w ? 'replaced' : 'removed']++
+			else if (w) workflows.added++
+		}
+		const b = plan.badges[id] ?? ''
+		if (hasBadge.has(id)) {
+			if (b !== (saved.badges[id] ?? KEEP)) badges[b ? 'changed' : 'removed']++
+		} else if (b && b !== KEEP) badges.added++
+	}
+
+	const emails = EMAIL_TRIGGERS.filter(
+		t => JSON.stringify(plan.emails[t]) !== JSON.stringify(saved.emails[t]),
+	).length
+
+	const savedStep = new Map(saved.access.map(a => [a.userId, a.stepName]))
+	const access = plan.access.filter(
+		a => a.stepName !== (savedStep.get(a.userId) ?? ''),
+	).length
+
+	return {
+		types: { added: typesAdded, removed: typesRemoved },
+		restrictions,
+		workflows,
+		badges,
+		emails,
+		access,
+	}
+}
+
+/** How many changes each section has, for the Changed badges and the save button. */
+export function editChangeCounts(diff: ReturnType<typeof diffSetup>) {
+	const sum = (o: Record<string, number>) =>
+		Object.values(o).reduce((a, b) => a + b, 0)
+	return {
+		types: diff.types.added.length + diff.types.removed.length,
+		restrictions: sum(diff.restrictions),
+		workflows: sum(diff.workflows),
+		badges: sum(diff.badges),
+		emails: diff.emails,
+		access: diff.access,
+	} satisfies Record<SetupSectionKey, number>
+}
+
+export function summarizeEdit(
+	ctx: SetupContext,
+	saved: SetupPlan,
+	plan: SetupPlan,
+) {
+	const d = diffSetup(ctx, saved, plan)
+	const plural = (n: number, one: string, many = `${one}s`) =>
+		`${n} ${n === 1 ? one : many}`
+	const list = (parts: [number, string][], noun: string) => {
+		const said = parts.filter(([n]) => n > 0).map(([n, verb]) => `${n} ${verb}`)
+		return said.length === 0 ? '' : `${noun}: ${said.join(', ')}`
+	}
+	return {
+		types:
+			d.types.added.length + d.types.removed.length === 0
+				? plural(plan.types.length, 'type')
+				: [
+						d.types.added.length && `${d.types.added.length} added`,
+						d.types.removed.length &&
+							`${d.types.removed.length} removed, with their workflows and badge templates`,
+					]
+						.filter(Boolean)
+						.join(', '),
+		restrictions: list(
+			[
+				[d.restrictions.added, 'added'],
+				[d.restrictions.changed, 'changed'],
+				[d.restrictions.removed, 'removed'],
+			],
+			'Restrictions',
+		),
+		workflows: list(
+			[
+				[d.workflows.added, 'added'],
+				[d.workflows.replaced, 'replaced'],
+				[d.workflows.removed, 'removed'],
+			],
+			'Workflows',
+		),
+		badges: list(
+			[
+				[d.badges.added, 'added'],
+				[d.badges.changed, 'changed'],
+				[d.badges.removed, 'removed'],
+			],
+			'Badge templates',
+		),
+		emails: d.emails === 0 ? '' : `${plural(d.emails, 'email')} changed`,
+		access:
+			d.access === 0
+				? ''
+				: `Step changed for ${plural(d.access, 'staff member')}`,
+		counts: editChangeCounts(d),
+	}
 }
