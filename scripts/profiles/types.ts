@@ -54,6 +54,11 @@ export function participantType(spec: {
 	}
 }
 
+export interface MeetingTypeSpec {
+	name: string
+	description: string
+}
+
 export interface TenantSpec {
 	name: string
 	email: string
@@ -89,6 +94,7 @@ export interface OrganProfile {
 	label: string
 	tenant: TenantSpec
 	participantTypes: ParticipantTypeSpec[]
+	meetingTypes: MeetingTypeSpec[]
 	/** Pre-filled defaults for the event prompts. All are editable at runtime. */
 	suggestedEvent?: SuggestedEvent
 	/**

@@ -60,10 +60,35 @@ export const pap: OrganProfile = {
 		t('Others', 'Others', Priority.LOW, ONE_LEVEL),
 		t('Any', 'Any participant', Priority.MEDIUM, ONE_LEVEL),
 	],
+	// The meeting types PAP supplied on 2026-11-06.
+	meetingTypes: [
+		{
+			name: 'Ordinary Session',
+			description: 'Ordinary Session of the Pan-African Parliament',
+		},
+		{
+			name: 'Committees Session',
+			description: 'Sittings of the permanent committees',
+		},
+		{
+			name: 'Conference',
+			description: 'Conferences hosted or organised by the Parliament',
+		},
+		{
+			name: 'AU meetings',
+			description: 'Meetings of African Union organs and bodies',
+		},
+		{
+			name: 'Joint Meetings',
+			description: 'Meetings held jointly with other bodies',
+		},
+		{ name: 'Other meetings', description: 'Meetings that fit no other type' },
+	],
 	unverifiedFields: [
 		'tenant.email (placeholder, follows the existing @accreditation.com pattern)',
 		'tenant.phone/address/city (PAP seat in Midrand, not confirmed)',
 		'participantTypes[].priority (assigned by inference, not supplied)',
+		'meetingTypes[].description (written here, PAP supplied names only)',
 		'participantTypes[].workflowTemplate (Two Levels for Bureau, MP, Diplomatic Corps, Security Clusters, Host Country Officials, VIPs and VVIPs; One Level for the rest; not confirmed)',
 	],
 }
