@@ -11,6 +11,8 @@ import {
 	Globe,
 	ListChecks,
 	Lock,
+	Plus,
+	TriangleAlert,
 	Mail,
 	MailCheck,
 	RefreshCw,
@@ -19,10 +21,11 @@ import {
 	Workflow,
 } from 'lucide-react'
 import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
-import { Alert, AlertTitle } from '~/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '~/components/ui/alert'
 import { Button } from '~/components/ui/button'
 import { ScrollArea } from '~/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger } from '~/components/ui/tabs'
+import { unfinishedEventTypes } from '~/utils/add-participant-type.server'
 import { requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
@@ -57,12 +60,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!currentUser.isGlobalAdmin && event.tenantId !== currentUser.tenantId) {
 		throw json({ message: 'Access denied' }, { status: 403 })
 	}
-	return json({ event })
+	const types = await unfinishedEventTypes(event.id)
+	return json({ event, types })
 }
 
+/** More unfinished types than this are summarised as "N more", linking to the picker. */
+const BANNER_LIMIT = 5
+
 export default function EventDetailsRoute() {
-	const { event } = useLoaderData<typeof loader>()
+	const { event, types } = useLoaderData<typeof loader>()
 	const location = useLocation()
+	const canChangeSetup = event.status !== 'COMPLETED'
 
 	const tabs = [
 		{ name: 'Overview', path: '.', icon: CalendarDays },
@@ -135,11 +143,20 @@ export default function EventDetailsRoute() {
 							</Button>
 						)}
 
-						{event.status !== 'COMPLETED' && (
+						{canChangeSetup && (
 							<Button asChild variant="outline" size="sm">
 								<Link to={`/admin/events/${event.id}/setup`}>
 									<ListChecks className="mr-2 h-4 w-4" />
 									Set up
+								</Link>
+							</Button>
+						)}
+
+						{canChangeSetup && types.hasList && (
+							<Button asChild variant="outline" size="sm">
+								<Link to={`/admin/events/${event.id}/add-type`}>
+									<Plus className="mr-2 h-4 w-4" />
+									Add type
 								</Link>
 							</Button>
 						)}
@@ -164,6 +181,52 @@ export default function EventDetailsRoute() {
 					</div>
 				</div>
 			</Alert>
+
+			{canChangeSetup && types.unfinished.length > 0 && (
+				<Alert variant="warning" className="mb-6">
+					<TriangleAlert className="h-5 w-5" />
+					<AlertTitle>
+						{types.unfinished.length === 1
+							? '1 participant type isn\u2019t fully set up'
+							: `${types.unfinished.length} participant types aren\u2019t fully set up`}
+					</AlertTitle>
+					<AlertDescription className="flex flex-col gap-2">
+						<p>
+							The portal only offers a type once it has a workflow, and its
+							badges can&rsquo;t print without a badge template.
+						</p>
+						<ul className="flex flex-wrap gap-x-4 gap-y-1">
+							{types.unfinished.slice(0, BANNER_LIMIT).map(t => (
+								<li key={t.id}>
+									<Link
+										to={`/admin/events/${event.id}/add-type?type=${t.id}`}
+										className="font-medium underline underline-offset-2 hover:no-underline"
+									>
+										Set up {t.name}
+									</Link>{' '}
+									<span className="text-xs">
+										(no{' '}
+										{t.missing
+											.map(m => (m === 'badge' ? 'badge template' : m))
+											.join(' or ')}
+										)
+									</span>
+								</li>
+							))}
+							{types.unfinished.length > BANNER_LIMIT && (
+								<li>
+									<Link
+										to={`/admin/events/${event.id}/add-type`}
+										className="font-medium underline underline-offset-2 hover:no-underline"
+									>
+										{types.unfinished.length - BANNER_LIMIT} more
+									</Link>
+								</li>
+							)}
+						</ul>
+					</AlertDescription>
+				</Alert>
+			)}
 
 			<div className="flex flex-col gap-4 sm:gap-6">
 				<Tabs value={currentTab.path} className="w-full">

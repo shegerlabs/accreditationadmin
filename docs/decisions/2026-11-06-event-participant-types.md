@@ -40,7 +40,27 @@ An explicit list per event: `EventParticipantType (eventId, participantTypeId)`.
 3. Deploy the admin, then the portal. Until step 2 runs, the portal offers no
    types for existing events.
 
+## Adding a type after setup
+
+`/admin/events/:eventId/add-type` (the event page's **Add type** button) is a
+short wizard for one type: pick it, then workflow, badge template, staff access
+and quotas, written in one transaction.
+
+- It offers types that aren't on the list yet, and listed types missing a
+  workflow or a badge template. Anything the type already has is kept and its
+  step is skipped.
+- Staff access only touches the type's own workflow. Each person is prefilled
+  with the step they work on most in the event; people with no access to the
+  event start with none, so access an admin removed stays removed.
+- Quotas are optional, one per existing restriction. "Also add to existing
+  invitations" copies each quota to the invitations whose quotas came from that
+  restriction (`sourceRestrictionId`), skipping ones that already have it.
+- It refuses events that have no list yet (they go to Set up), since the new
+  type would become the event's only one.
+- A banner on the event page names listed types missing a workflow or a badge
+  template, each linking to the wizard for that type.
+
 ## Not yet
 
-- Changing an event's list after setup: adding a type mid-event (banner + short
-  wizard) is the next step, editing it while the event is a draft the one after.
+- Removing a type from an event's list, and editing setup while the event is a
+  draft.

@@ -3,8 +3,10 @@
 // Decision record: docs/decisions/2026-11-06-event-setup-wizard.md
 
 import { type Prisma } from '@prisma/client'
+import { json } from '@remix-run/node'
 import { z } from 'zod'
 import { PROFILES } from '../../scripts/profiles/index.js'
+import { requireAdminAccess } from './auth.server'
 import { prisma } from './db.server'
 import {
 	type SetupContext,
@@ -23,7 +25,7 @@ import {
 } from './workflow-clone.server'
 
 /** Roles whose users work on workflow steps. */
-const STAFF_ROLES = ['reviewer', 'validator', 'printer', 'dispatcher']
+export const STAFF_ROLES = ['reviewer', 'validator', 'printer', 'dispatcher']
 
 /** The seed's restrictions (prisma/seed.ts), by participant type name. */
 const DEFAULT_RESTRICTIONS = [
@@ -49,7 +51,49 @@ const DEFAULT_RESTRICTIONS = [
 ] as const
 
 /** Interactive transactions default to 5s; cloning ~25 workflows step by step takes longer. */
-const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 }
+export const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 }
+
+/** The event a setup page works on: the user's tenant, not deleted, not closed. */
+export async function requireSetupEvent(
+	request: Request,
+	eventId: string | undefined,
+) {
+	const user = await requireAdminAccess(request)
+	const event = await prisma.event.findUnique({
+		where: { id: eventId },
+		select: {
+			id: true,
+			name: true,
+			status: true,
+			tenantId: true,
+			deletedAt: true,
+		},
+	})
+	if (!event || event.deletedAt)
+		throw new Response('Not Found', { status: 404 })
+	if (!user.isGlobalAdmin && event.tenantId !== user.tenantId) {
+		throw json({ message: 'Access denied' }, { status: 403 })
+	}
+	if (event.status === 'COMPLETED') {
+		throw json(
+			{ message: 'This event is closed. Reopen it before changing its setup.' },
+			{ status: 409 },
+		)
+	}
+	return { user, event }
+}
+
+/** The organ profile's workflow template name per participant type name, matched on the tenant's name. */
+export async function profileWorkflowTemplates(tenantId: string) {
+	const tenant = await prisma.tenant.findUnique({
+		where: { id: tenantId },
+		select: { name: true },
+	})
+	const profile = PROFILES.find(p => p.tenant.name === tenant?.name)
+	return new Map(
+		profile?.participantTypes.map(t => [t.name, t.workflowTemplate]),
+	)
+}
 
 export async function loadSetupContext(event: {
 	id: string
@@ -219,15 +263,8 @@ export async function buildDefaultPlan(
 					}),
 				}))
 
-	// The organ profile scripts/setup-event uses, matched on the tenant's name.
-	const tenant = await prisma.tenant.findUnique({
-		where: { id: event.tenantId },
-		select: { name: true },
-	})
-	const profile = PROFILES.find(p => p.tenant.name === tenant?.name)
-	const profileTemplate = new Map(
-		profile?.participantTypes.map(t => [t.name, t.workflowTemplate]),
-	)
+	// The organ profile scripts/setup-event uses.
+	const profileTemplate = await profileWorkflowTemplates(event.tenantId)
 	const templateIdByName = new Map(
 		ctx.workflowTemplates.map(t => [t.name, t.id]),
 	)

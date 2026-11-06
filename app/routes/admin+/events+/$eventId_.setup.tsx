@@ -15,9 +15,7 @@ import { SectionEditor } from '~/components/event-setup/editors'
 import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
 import { Button } from '~/components/ui/button'
 import { auditRequest } from '~/utils/audit.server'
-import { requireAdminAccess } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
-import { prisma } from '~/utils/db.server'
 import {
 	SETUP_SECTIONS,
 	isSectionChanged,
@@ -32,38 +30,11 @@ import {
 	buildDefaultPlan,
 	loadSetupContext,
 	parsePlan,
+	requireSetupEvent,
 } from '~/utils/event-setup.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
-import { cn, invariantResponse, useIsPending } from '~/utils/misc'
+import { cn, useIsPending } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
-
-async function requireSetupEvent(
-	request: Request,
-	eventId: string | undefined,
-) {
-	const user = await requireAdminAccess(request)
-	const event = await prisma.event.findUnique({
-		where: { id: eventId },
-		select: {
-			id: true,
-			name: true,
-			status: true,
-			tenantId: true,
-			deletedAt: true,
-		},
-	})
-	invariantResponse(event && !event.deletedAt, 'Not Found', { status: 404 })
-	if (!user.isGlobalAdmin && event.tenantId !== user.tenantId) {
-		throw json({ message: 'Access denied' }, { status: 403 })
-	}
-	if (event.status === 'COMPLETED') {
-		throw json(
-			{ message: 'This event is closed. Reopen it before changing its setup.' },
-			{ status: 409 },
-		)
-	}
-	return { user, event }
-}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { event } = await requireSetupEvent(request, params.eventId)

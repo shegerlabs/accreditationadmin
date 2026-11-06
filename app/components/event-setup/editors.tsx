@@ -39,7 +39,7 @@ type EditorProps = {
 /** Radix Select forbids an empty item value, so "none" travels as this sentinel. */
 const NONE = '__none'
 
-function Pick({
+export function Pick({
 	value,
 	onChange,
 	options,
