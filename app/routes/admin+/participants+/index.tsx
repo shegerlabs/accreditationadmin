@@ -363,52 +363,62 @@ export default function IndexRoute() {
 							},
 						]}
 						renderExtra={
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<Button size="sm" className="gap-1">
-										<Icon name="download" size="sm" />
-										Export
-										{selectedIds.size > 0 && ` (${selectedIds.size})`}
-										<ChevronDown className="h-4 w-4" />
+							<div className="flex items-center gap-2">
+								{isGlobalAdmin && deletedFilter === 'deleted' && (
+									<Button size="sm" variant="destructive" className="gap-1" asChild>
+										<Link to="/admin/participants/empty-trash">
+											<Trash2 className="h-4 w-4" />
+											Empty Recycle Bin
+										</Link>
 									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end">
-									<DropdownMenuItem asChild disabled={nothingToExport}>
-										<a
-											href={buildExportUrl('/admin/resources/participants')}
-											className="flex items-center gap-2"
-										>
-											Export Excel
-										</a>
-									</DropdownMenuItem>
-									<DropdownMenuItem asChild disabled={nothingToExport}>
-										<a
-											href={buildExportUrl(
-												'/admin/resources/participants-screening',
-											)}
-											className="flex items-center gap-2"
-										>
-											Screening List (Excel)
-										</a>
-									</DropdownMenuItem>
-									<DropdownMenuItem asChild disabled={nothingToExport}>
-										<a
-											href={buildExportUrl('/admin/resources/participants-vip')}
-											className="flex items-center gap-2"
-										>
-											VIP List with Photos (Word)
-										</a>
-									</DropdownMenuItem>
-									<DropdownMenuItem asChild disabled={nothingToExport}>
-										<a
-											href={buildExportUrl('/admin/resources/photos')}
-											className="flex items-center gap-2"
-										>
-											Download Photos
-										</a>
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
+								)}
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button size="sm" className="gap-1">
+											<Icon name="download" size="sm" />
+											Export
+											{selectedIds.size > 0 && ` (${selectedIds.size})`}
+											<ChevronDown className="h-4 w-4" />
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end">
+										<DropdownMenuItem asChild disabled={nothingToExport}>
+											<a
+												href={buildExportUrl('/admin/resources/participants')}
+												className="flex items-center gap-2"
+											>
+												Export Excel
+											</a>
+										</DropdownMenuItem>
+										<DropdownMenuItem asChild disabled={nothingToExport}>
+											<a
+												href={buildExportUrl(
+													'/admin/resources/participants-screening',
+												)}
+												className="flex items-center gap-2"
+											>
+												Screening List (Excel)
+											</a>
+										</DropdownMenuItem>
+										<DropdownMenuItem asChild disabled={nothingToExport}>
+											<a
+												href={buildExportUrl('/admin/resources/participants-vip')}
+												className="flex items-center gap-2"
+											>
+												VIP List with Photos (Word)
+											</a>
+										</DropdownMenuItem>
+										<DropdownMenuItem asChild disabled={nothingToExport}>
+											<a
+												href={buildExportUrl('/admin/resources/photos')}
+												className="flex items-center gap-2"
+											>
+												Download Photos
+											</a>
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
+							</div>
 						}
 					/>
 				</div>
