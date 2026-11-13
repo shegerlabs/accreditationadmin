@@ -268,7 +268,7 @@ export default function PrinterReprintParticipantProfile() {
 		},
 		{
 			type: 'PASSPORT',
-			label: 'Passport',
+			label: 'ID/Passport',
 			icon: FileText,
 			link: passportLink,
 			doc: passport,
@@ -276,7 +276,7 @@ export default function PrinterReprintParticipantProfile() {
 		},
 		{
 			type: 'LETTER',
-			label: 'Letter',
+			label: 'Invitation Letter',
 			icon: FileCheck,
 			link: letterLink,
 			doc: letter,
@@ -374,7 +374,7 @@ export default function PrinterReprintParticipantProfile() {
 							value: format(new Date(general.dateOfBirth), 'PP'),
 						},
 						{ label: 'Nationality', value: general.nationality },
-						{ label: 'Passport No.', value: general.passportNumber ?? 'N/A' },
+						{ label: 'ID/Passport No.', value: general.passportNumber ?? 'N/A' },
 						{
 							label: 'Passport Expiry',
 							value: general.passportExpiry
