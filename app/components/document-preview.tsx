@@ -57,9 +57,7 @@ export function DocumentPreview({
 					<Icon className="h-4 w-4 text-white" />
 				</div>
 				<div className="text-left">
-					<p className="text-sm font-medium text-slate-700">
-						{type.charAt(0).toUpperCase() + type.slice(1).toLowerCase()}
-					</p>
+					<p className="text-sm font-medium text-slate-700">{type}</p>
 					<p className="text-xs text-slate-500">Click to preview</p>
 				</div>
 			</button>
@@ -74,7 +72,7 @@ export function DocumentPreview({
 						<DialogTitle className="text-xl">{title}</DialogTitle>
 						<div className="flex items-center justify-between">
 							<DialogDescription className="text-sm text-gray-500">
-								Preview of {type.toLowerCase()} document
+								Preview of {type}
 							</DialogDescription>
 							<div className="flex items-center gap-2">
 								<Button

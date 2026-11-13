@@ -129,6 +129,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		dateOfBirth: participant.dateOfBirth,
 		nationality: participant.nationality.name,
 		passportNumber: participant.passportNumber,
+		identityDocumentType: participant.identityDocumentType,
 		passportExpiry: participant.passportExpiry,
 	}
 
@@ -396,13 +397,23 @@ export default function PrinterParticipantProfile() {
 							value: format(new Date(general.dateOfBirth), 'PP'),
 						},
 						{ label: 'Nationality', value: general.nationality },
-						{ label: 'ID/Passport No.', value: general.passportNumber ?? 'N/A' },
 						{
-							label: 'Passport Expiry',
-							value: general.passportExpiry
-								? format(new Date(general.passportExpiry), 'PP')
-								: 'N/A',
+							label:
+								general.identityDocumentType === 'NATIONAL_ID'
+									? 'National ID No.'
+									: 'Passport No.',
+							value: general.passportNumber ?? 'N/A',
 						},
+						...(general.identityDocumentType === 'NATIONAL_ID'
+							? []
+							: [
+									{
+										label: 'Passport Expiry',
+										value: general.passportExpiry
+											? format(new Date(general.passportExpiry), 'PP')
+											: 'N/A',
+									},
+								]),
 					]}
 				/>
 				<InfoCard
