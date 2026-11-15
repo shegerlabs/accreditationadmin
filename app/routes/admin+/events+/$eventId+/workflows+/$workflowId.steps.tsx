@@ -29,7 +29,7 @@ export default function StepsLayout() {
 	return (
 		<div className="flex flex-col gap-4">
 			{/* View Toggle Tabs */}
-			<div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
+			<div className="flex w-fit gap-1 rounded-lg bg-muted p-1">
 				<NavLink
 					to="."
 					end

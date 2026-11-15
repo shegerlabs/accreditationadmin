@@ -34,5 +34,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function AddStepRoute() {
 	const { workflow, steps } = useLoaderData<typeof loader>()
-	return <StepEditor title="Add Step" workflow={workflow} steps={steps} intent="add" />
+	return (
+		<StepEditor
+			title="Add Step"
+			workflow={workflow}
+			steps={steps}
+			intent="add"
+		/>
+	)
 }

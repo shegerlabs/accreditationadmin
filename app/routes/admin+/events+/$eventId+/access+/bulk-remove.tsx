@@ -256,8 +256,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function BulkRemoveAccessRoute() {
-	const { eventId, accessCount, rolesWithCount, stepsWithCount, usersWithCount } =
-		useLoaderData<typeof loader>()
+	const {
+		eventId,
+		accessCount,
+		rolesWithCount,
+		stepsWithCount,
+		usersWithCount,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const isPending = useIsPending()
 	const navigate = useNavigate()
@@ -311,16 +316,14 @@ export default function BulkRemoveAccessRoute() {
 					<HoneypotInputs />
 					<input type="hidden" name="eventId" value={eventId} />
 
-					<div className="grid gap-4 py-4 px-1 max-h-[60vh] overflow-y-auto">
+					<div className="grid max-h-[60vh] gap-4 overflow-y-auto px-1 py-4">
 						{/* Remove Type Selection */}
 						<Field>
 							<Label>Remove Type</Label>
 							<RadioGroup
 								value={removeType}
 								onValueChange={value =>
-									setRemoveType(
-										value as 'all' | 'byRole' | 'byStep' | 'byUser',
-									)
+									setRemoveType(value as 'all' | 'byRole' | 'byStep' | 'byUser')
 								}
 								className="mt-2 space-y-2"
 							>
@@ -394,9 +397,9 @@ export default function BulkRemoveAccessRoute() {
 											}))}
 											placeholder="Select a step to remove"
 										/>
-										<p className="text-xs text-muted-foreground mt-1">
-											This will remove access for this step across all participant
-											types
+										<p className="mt-1 text-xs text-muted-foreground">
+											This will remove access for this step across all
+											participant types
 										</p>
 									</>
 								)}
@@ -411,13 +414,13 @@ export default function BulkRemoveAccessRoute() {
 							<Field>
 								<Label>Select Users</Label>
 								{usersWithCount.length === 0 ? (
-									<p className="text-sm text-muted-foreground mt-2">
+									<p className="mt-2 text-sm text-muted-foreground">
 										No users have access to this event.
 									</p>
 								) : (
 									<>
-										<div className="mt-2 border rounded-md p-3">
-											<div className="flex gap-3 mb-2 text-sm">
+										<div className="mt-2 rounded-md border p-3">
+											<div className="mb-2 flex gap-3 text-sm">
 												<button
 													type="button"
 													className="text-primary hover:underline"
@@ -440,7 +443,7 @@ export default function BulkRemoveAccessRoute() {
 													</span>
 												)}
 											</div>
-											<div className="max-h-40 overflow-y-auto space-y-2">
+											<div className="max-h-40 space-y-2 overflow-y-auto">
 												{usersWithCount.map(user => (
 													<div
 														key={user.id}
@@ -455,7 +458,8 @@ export default function BulkRemoveAccessRoute() {
 															htmlFor={`user-${user.id}`}
 															className="font-normal"
 														>
-															{user.username} ({user.email}) - {user.count} record{user.count !== 1 ? 's' : ''}
+															{user.username} ({user.email}) - {user.count}{' '}
+															record{user.count !== 1 ? 's' : ''}
 														</Label>
 														<input
 															type="hidden"
@@ -468,7 +472,7 @@ export default function BulkRemoveAccessRoute() {
 											</div>
 										</div>
 										{selectedUserIds.length === 0 && (
-											<p className="text-sm text-destructive mt-1">
+											<p className="mt-1 text-sm text-destructive">
 												Please select at least one user
 											</p>
 										)}
@@ -478,8 +482,8 @@ export default function BulkRemoveAccessRoute() {
 						)}
 
 						{/* Warning */}
-						<div className="bg-destructive/10 border border-destructive/20 rounded-md p-3">
-							<p className="text-sm text-destructive font-medium">Warning</p>
+						<div className="rounded-md border border-destructive/20 bg-destructive/10 p-3">
+							<p className="text-sm font-medium text-destructive">Warning</p>
 							<p className="text-sm text-muted-foreground">
 								This action cannot be undone. The selected access records will
 								be permanently removed.

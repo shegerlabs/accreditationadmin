@@ -1,6 +1,12 @@
 import { getFormProps, getInputProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
-import { Form, useActionData, useFetcher, useNavigate, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useFetcher,
+	useNavigate,
+	useParams,
+} from '@remix-run/react'
 import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import { SelectField } from '~/components/conform/SelectField'
@@ -56,7 +62,12 @@ type Workflow = {
 	id: string
 	name: string
 	participantType: { id: string; name: string }
-	steps: { id: string; name: string; order: number; requiresAssignment: boolean }[]
+	steps: {
+		id: string
+		name: string
+		order: number
+		requiresAssignment: boolean
+	}[]
 }
 
 type UserSearchResult = {
@@ -175,7 +186,9 @@ export function AccessEditor({
 
 		if (userSearch.length >= 2) {
 			searchTimeoutRef.current = setTimeout(() => {
-				userFetcher.load(`/admin/resources/users?search=${encodeURIComponent(userSearch)}`)
+				userFetcher.load(
+					`/admin/resources/users?search=${encodeURIComponent(userSearch)}`,
+				)
 			}, 300)
 		}
 
@@ -189,7 +202,10 @@ export function AccessEditor({
 	// Close dropdown when clicking outside
 	useEffect(() => {
 		function handleClickOutside(event: MouseEvent) {
-			if (userSearchRef.current && !userSearchRef.current.contains(event.target as Node)) {
+			if (
+				userSearchRef.current &&
+				!userSearchRef.current.contains(event.target as Node)
+			) {
 				setShowUserResults(false)
 			}
 		}
@@ -205,7 +221,11 @@ export function AccessEditor({
 	const [participantTypeSelection, setParticipantTypeSelection] = useState<
 		'all' | 'some'
 	>(() => {
-		if (isEdit && existingParticipantTypeIds && existingParticipantTypeIds.length > 0) {
+		if (
+			isEdit &&
+			existingParticipantTypeIds &&
+			existingParticipantTypeIds.length > 0
+		) {
 			// If existing types match all available types, select 'all'
 			if (existingParticipantTypeIds.length === participantTypes.length) {
 				return 'all'
@@ -246,7 +266,11 @@ export function AccessEditor({
 		},
 	})
 
-	const handleSelectUser = (user: { id: string; username: string; email: string }) => {
+	const handleSelectUser = (user: {
+		id: string
+		username: string
+		email: string
+	}) => {
 		setSelectedUser(user)
 		setUserSearch('')
 		setShowUserResults(false)
@@ -281,7 +305,9 @@ export function AccessEditor({
 				onInteractOutside={e => e.preventDefault()}
 			>
 				<DialogHeader>
-					<DialogTitle>{isCreatingUser ? 'Create New User' : title}</DialogTitle>
+					<DialogTitle>
+						{isCreatingUser ? 'Create New User' : title}
+					</DialogTitle>
 					<DialogDescription>
 						{isCreatingUser
 							? 'Create a new user to grant them access to this event.'
@@ -300,7 +326,7 @@ export function AccessEditor({
 						action="/admin/resources/users"
 						{...getFormProps(createUserForm)}
 					>
-						<div className="grid gap-4 py-4 px-1 max-h-[60vh] overflow-y-auto">
+						<div className="grid max-h-[60vh] gap-4 overflow-y-auto px-1 py-4">
 							<Field>
 								<Label htmlFor={createUserFields.name.id}>Name</Label>
 								<Input
@@ -315,7 +341,9 @@ export function AccessEditor({
 							<Field>
 								<Label htmlFor={createUserFields.username.id}>Username</Label>
 								<Input
-									{...getInputProps(createUserFields.username, { type: 'text' })}
+									{...getInputProps(createUserFields.username, {
+										type: 'text',
+									})}
 									placeholder="Username"
 									key={createUserFields.username.key}
 								/>
@@ -337,7 +365,9 @@ export function AccessEditor({
 							<Field>
 								<Label htmlFor={createUserFields.password.id}>Password</Label>
 								<Input
-									{...getInputProps(createUserFields.password, { type: 'password' })}
+									{...getInputProps(createUserFields.password, {
+										type: 'password',
+									})}
 									placeholder="Password (min 6 characters)"
 									key={createUserFields.password.key}
 								/>
@@ -346,14 +376,20 @@ export function AccessEditor({
 								)}
 							</Field>
 							<Field>
-								<Label htmlFor={createUserFields.confirmPassword.id}>Confirm Password</Label>
+								<Label htmlFor={createUserFields.confirmPassword.id}>
+									Confirm Password
+								</Label>
 								<Input
-									{...getInputProps(createUserFields.confirmPassword, { type: 'password' })}
+									{...getInputProps(createUserFields.confirmPassword, {
+										type: 'password',
+									})}
 									placeholder="Confirm password"
 									key={createUserFields.confirmPassword.key}
 								/>
 								{createUserFields.confirmPassword.errors && (
-									<FieldError>{createUserFields.confirmPassword.errors}</FieldError>
+									<FieldError>
+										{createUserFields.confirmPassword.errors}
+									</FieldError>
 								)}
 							</Field>
 						</div>
@@ -406,7 +442,7 @@ export function AccessEditor({
 						{/* Delete mode only needs id, allIds, and eventId, which are already rendered above */}
 
 						{!isDelete && (
-							<div className="grid gap-4 py-4 px-1 max-h-[60vh] overflow-y-auto">
+							<div className="grid max-h-[60vh] gap-4 overflow-y-auto px-1 py-4">
 								{/* User Selection with Server-side Search */}
 								<Field>
 									<Label htmlFor="user-search">User</Label>
@@ -419,8 +455,10 @@ export function AccessEditor({
 										{selectedUser ? (
 											<div className="flex items-center justify-between rounded-md border bg-muted/50 px-3 py-2">
 												<div>
-													<span className="font-medium">{selectedUser.username}</span>
-													<span className="text-muted-foreground ml-2">
+													<span className="font-medium">
+														{selectedUser.username}
+													</span>
+													<span className="ml-2 text-muted-foreground">
 														({selectedUser.email})
 													</span>
 												</div>
@@ -476,7 +514,9 @@ export function AccessEditor({
 																			className="w-full px-3 py-2 text-left hover:bg-accent focus:bg-accent focus:outline-none"
 																			onClick={() => handleSelectUser(user)}
 																		>
-																			<div className="font-medium">{user.username}</div>
+																			<div className="font-medium">
+																				{user.username}
+																			</div>
 																			<div className="text-sm text-muted-foreground">
 																				{user.email}
 																				{user.name && ` - ${user.name}`}
@@ -494,7 +534,7 @@ export function AccessEditor({
 												)}
 
 												{userSearch.length > 0 && userSearch.length < 2 && (
-													<p className="text-xs text-muted-foreground mt-1">
+													<p className="mt-1 text-xs text-muted-foreground">
 														Type at least 2 characters to search
 													</p>
 												)}
@@ -516,186 +556,204 @@ export function AccessEditor({
 									)}
 								</Field>
 
-							{/* Role Selection */}
-							<Field>
-								<Label htmlFor={fields.roleId.id}>Role</Label>
-								<SelectField
-									meta={fields.roleId}
-									items={roles.map(role => ({
-										name: role.name,
-										value: role.id,
-									}))}
-									placeholder="Select a role"
-								/>
-								{fields.roleId.errors && (
-									<FieldError>{fields.roleId.errors}</FieldError>
-								)}
-							</Field>
+								{/* Role Selection */}
+								<Field>
+									<Label htmlFor={fields.roleId.id}>Role</Label>
+									<SelectField
+										meta={fields.roleId}
+										items={roles.map(role => ({
+											name: role.name,
+											value: role.id,
+										}))}
+										placeholder="Select a role"
+									/>
+									{fields.roleId.errors && (
+										<FieldError>{fields.roleId.errors}</FieldError>
+									)}
+								</Field>
 
-							{/* Participant Type Selection - Radio */}
-							<Field>
-								<Label>Participant Types</Label>
-								<RadioGroup
-									value={participantTypeSelection}
-									onValueChange={value =>
-										setParticipantTypeSelection(value as 'all' | 'some')
-									}
-									className="mt-2"
-								>
-									<div className="flex items-center space-x-2">
-										<RadioGroupItem value="all" id="pt-all" />
-										<Label htmlFor="pt-all" className="font-normal">
-											All Participant Types ({participantTypes.length})
-										</Label>
-									</div>
-									<div className="flex items-center space-x-2">
-										<RadioGroupItem value="some" id="pt-some" />
-										<Label htmlFor="pt-some" className="font-normal">
-											Select Specific
-										</Label>
-									</div>
-								</RadioGroup>
-								<input
-									type="hidden"
-									name="participantTypeSelection"
-									value={participantTypeSelection}
-								/>
+								{/* Participant Type Selection - Radio */}
+								<Field>
+									<Label>Participant Types</Label>
+									<RadioGroup
+										value={participantTypeSelection}
+										onValueChange={value =>
+											setParticipantTypeSelection(value as 'all' | 'some')
+										}
+										className="mt-2"
+									>
+										<div className="flex items-center space-x-2">
+											<RadioGroupItem value="all" id="pt-all" />
+											<Label htmlFor="pt-all" className="font-normal">
+												All Participant Types ({participantTypes.length})
+											</Label>
+										</div>
+										<div className="flex items-center space-x-2">
+											<RadioGroupItem value="some" id="pt-some" />
+											<Label htmlFor="pt-some" className="font-normal">
+												Select Specific
+											</Label>
+										</div>
+									</RadioGroup>
+									<input
+										type="hidden"
+										name="participantTypeSelection"
+										value={participantTypeSelection}
+									/>
 
-								{/* Checkbox list for specific participant types */}
-								{participantTypeSelection === 'some' && (
-									<div className="mt-3">
-										<div className="flex items-center justify-between mb-2">
-											<span className="text-sm text-muted-foreground">
-												{selectedParticipantTypeIds.length} of {participantTypes.length} selected
-											</span>
-											<div className="flex items-center gap-2 text-sm">
-												<button
-													type="button"
-													className="text-primary hover:underline"
-													onClick={() =>
-														setSelectedParticipantTypeIds(
-															participantTypes.map(pt => pt.id),
-														)
-													}
-												>
-													Select all
-												</button>
-												<span className="text-muted-foreground">|</span>
-												<button
-													type="button"
-													className="text-primary hover:underline"
-													onClick={() => setSelectedParticipantTypeIds([])}
-												>
-													Clear
-												</button>
+									{/* Checkbox list for specific participant types */}
+									{participantTypeSelection === 'some' && (
+										<div className="mt-3">
+											<div className="mb-2 flex items-center justify-between">
+												<span className="text-sm text-muted-foreground">
+													{selectedParticipantTypeIds.length} of{' '}
+													{participantTypes.length} selected
+												</span>
+												<div className="flex items-center gap-2 text-sm">
+													<button
+														type="button"
+														className="text-primary hover:underline"
+														onClick={() =>
+															setSelectedParticipantTypeIds(
+																participantTypes.map(pt => pt.id),
+															)
+														}
+													>
+														Select all
+													</button>
+													<span className="text-muted-foreground">|</span>
+													<button
+														type="button"
+														className="text-primary hover:underline"
+														onClick={() => setSelectedParticipantTypeIds([])}
+													>
+														Clear
+													</button>
+												</div>
+											</div>
+											<div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
+												{participantTypes.map(pt => (
+													<div
+														key={pt.id}
+														className="flex items-center space-x-2"
+													>
+														<Checkbox
+															id={`pt-${pt.id}`}
+															checked={selectedParticipantTypeIds.includes(
+																pt.id,
+															)}
+															onCheckedChange={() =>
+																handleParticipantTypeToggle(pt.id)
+															}
+														/>
+														<Label
+															htmlFor={`pt-${pt.id}`}
+															className="font-normal"
+														>
+															{pt.name}
+														</Label>
+														<input
+															type="hidden"
+															name="participantTypeIds"
+															value={pt.id}
+															disabled={
+																!selectedParticipantTypeIds.includes(pt.id)
+															}
+														/>
+													</div>
+												))}
+												{participantTypes.length === 0 && (
+													<p className="text-sm text-muted-foreground">
+														No participant types found
+													</p>
+												)}
 											</div>
 										</div>
-										<div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
-											{participantTypes.map(pt => (
-												<div key={pt.id} className="flex items-center space-x-2">
-													<Checkbox
-														id={`pt-${pt.id}`}
-														checked={selectedParticipantTypeIds.includes(pt.id)}
-														onCheckedChange={() =>
-															handleParticipantTypeToggle(pt.id)
-														}
-													/>
-													<Label htmlFor={`pt-${pt.id}`} className="font-normal">
-														{pt.name}
-													</Label>
-													<input
-														type="hidden"
-														name="participantTypeIds"
-														value={pt.id}
-														disabled={
-															!selectedParticipantTypeIds.includes(pt.id)
-														}
-													/>
-												</div>
-											))}
-											{participantTypes.length === 0 && (
-												<p className="text-sm text-muted-foreground">
-													No participant types found
-												</p>
-											)}
-										</div>
-									</div>
-								)}
-								{participantTypeSelection === 'some' &&
-									selectedParticipantTypeIds.length === 0 && (
-										<p className="text-sm text-destructive mt-1">
-											Please select at least one participant type
-										</p>
 									)}
-							</Field>
+									{participantTypeSelection === 'some' &&
+										selectedParticipantTypeIds.length === 0 && (
+											<p className="mt-1 text-sm text-destructive">
+												Please select at least one participant type
+											</p>
+										)}
+								</Field>
 
-							{/* Step Selection by Name */}
-							<Field>
-								<Label htmlFor={fields.stepName.id}>Step</Label>
-								<SelectField
-									meta={fields.stepName}
-									items={assignableStepNames.map(name => ({
-										name: name,
-										value: name,
-									}))}
-									placeholder="Select a step"
-								/>
-								<p className="text-xs text-muted-foreground mt-1">
-									Access will be granted for this step across{' '}
-									{participantTypeSelection === 'all'
-										? 'all participant types'
-										: `${selectedParticipantTypeIds.length} selected participant type(s)`}
+								{/* Step Selection by Name */}
+								<Field>
+									<Label htmlFor={fields.stepName.id}>Step</Label>
+									<SelectField
+										meta={fields.stepName}
+										items={assignableStepNames.map(name => ({
+											name: name,
+											value: name,
+										}))}
+										placeholder="Select a step"
+									/>
+									<p className="mt-1 text-xs text-muted-foreground">
+										Access will be granted for this step across{' '}
+										{participantTypeSelection === 'all'
+											? 'all participant types'
+											: `${selectedParticipantTypeIds.length} selected participant type(s)`}
+									</p>
+									{fields.stepName.errors && (
+										<FieldError>{fields.stepName.errors}</FieldError>
+									)}
+								</Field>
+							</div>
+						)}
+
+						{isDelete && access && (
+							<div className="py-4">
+								<p className="text-sm text-muted-foreground">
+									This will revoke{' '}
+									{recordCount && recordCount > 1
+										? `${recordCount} access records`
+										: 'access'}{' '}
+									for this user. They will no longer be able to access this
+									event with this role
+									{recordCount && recordCount > 1
+										? ` across ${recordCount} participant types`
+										: ''}
+									.
 								</p>
-								{fields.stepName.errors && (
-									<FieldError>{fields.stepName.errors}</FieldError>
-								)}
-							</Field>
-						</div>
-					)}
+							</div>
+						)}
 
-					{isDelete && access && (
-						<div className="py-4">
-							<p className="text-sm text-muted-foreground">
-								This will revoke {recordCount && recordCount > 1 ? `${recordCount} access records` : 'access'} for this user.
-								They will no longer be able to access this event with this role
-								{recordCount && recordCount > 1 ? ` across ${recordCount} participant types` : ''}.
-							</p>
-						</div>
-					)}
-
-					<DialogFooter>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => navigate(`/admin/events/${params.eventId}/access`)}
-						>
-							Cancel
-						</Button>
-						<Button
-							type="submit"
-							variant={isDelete ? 'destructive' : 'default'}
-							disabled={
-								isPending ||
-								(!isDelete && !selectedUser) ||
-								(!isDelete &&
-									participantTypeSelection === 'some' &&
-									selectedParticipantTypeIds.length === 0)
-							}
-						>
-							{isPending
-								? isDelete
-									? 'Revoking...'
-									: isEdit
-										? 'Updating...'
-										: 'Granting...'
-								: isDelete
-									? 'Revoke Access'
-									: isEdit
-										? 'Update Access'
-										: 'Grant Access'}
-						</Button>
-					</DialogFooter>
-				</Form>
+						<DialogFooter>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() =>
+									navigate(`/admin/events/${params.eventId}/access`)
+								}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="submit"
+								variant={isDelete ? 'destructive' : 'default'}
+								disabled={
+									isPending ||
+									(!isDelete && !selectedUser) ||
+									(!isDelete &&
+										participantTypeSelection === 'some' &&
+										selectedParticipantTypeIds.length === 0)
+								}
+							>
+								{isPending
+									? isDelete
+										? 'Revoking...'
+										: isEdit
+											? 'Updating...'
+											: 'Granting...'
+									: isDelete
+										? 'Revoke Access'
+										: isEdit
+											? 'Update Access'
+											: 'Grant Access'}
+							</Button>
+						</DialogFooter>
+					</Form>
 				)}
 			</DialogContent>
 		</Dialog>

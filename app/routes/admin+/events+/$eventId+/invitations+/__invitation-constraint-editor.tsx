@@ -2,7 +2,13 @@ import { getFormProps, getInputProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
 import type { AccessLevel, Invitation, ParticipantType } from '@prisma/client'
 import { SerializeFrom } from '@remix-run/node'
-import { Form, useActionData, useNavigate, useOutletContext, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useNavigate,
+	useOutletContext,
+	useParams,
+} from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { z } from 'zod'
@@ -98,7 +104,7 @@ export function InvitationConstraintEditor({
 	return (
 		<Dialog open={true} onOpenChange={handleClose}>
 			<DialogContent
-				className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto"
+				className="max-h-[90vh] overflow-y-auto sm:max-w-[500px]"
 				onInteractOutside={e => e.preventDefault()}
 			>
 				<DialogHeader>

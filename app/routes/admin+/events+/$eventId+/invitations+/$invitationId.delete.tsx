@@ -2,7 +2,13 @@ import { getFormProps, useForm } from '@conform-to/react'
 import { parseWithZod } from '@conform-to/zod'
 import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
-import { Form, useActionData, useLoaderData, useNavigate, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useLoaderData,
+	useNavigate,
+	useParams,
+} from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { z } from 'zod'
@@ -56,7 +62,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 
 	invariantResponse(invitation, 'Not Found', { status: 404 })
-	invariantResponse(invitation.eventId === eventId, 'Not Found', { status: 404 })
+	invariantResponse(invitation.eventId === eventId, 'Not Found', {
+		status: 404,
+	})
 
 	return json({ invitation })
 }
@@ -129,12 +137,13 @@ export default function DeleteInvitationRoute() {
 				<DialogHeader>
 					<DialogTitle>Delete Invitation</DialogTitle>
 					<DialogDescription>
-						Are you sure you want to delete this invitation? This action cannot be undone.
+						Are you sure you want to delete this invitation? This action cannot
+						be undone.
 					</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-4 py-4">
-					<div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+					<div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
 						<div>
 							<span className="text-muted-foreground">Organization:</span>{' '}
 							<span className="font-medium">{invitation.organization}</span>
@@ -159,7 +168,9 @@ export default function DeleteInvitationRoute() {
 
 					{invitation.invitationConstraints.length > 0 && (
 						<div>
-							<p className="text-sm font-medium mb-2">Constraints that will be deleted:</p>
+							<p className="mb-2 text-sm font-medium">
+								Constraints that will be deleted:
+							</p>
 							<Table>
 								<TableHeader>
 									<TableRow>
@@ -203,7 +214,7 @@ export default function DeleteInvitationRoute() {
 							value="delete"
 							variant="destructive"
 							disabled={isPending}
-							status={isPending ? 'pending' : form.status ?? 'idle'}
+							status={isPending ? 'pending' : (form.status ?? 'idle')}
 						>
 							Delete Invitation
 						</StatusButton>

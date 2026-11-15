@@ -45,6 +45,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export default function EditTemplateRoute() {
 	const { template, event } = useLoaderData<typeof loader>()
 	return (
-		<TemplateEditor template={template} title="Edit Template" event={event} intent="edit" />
+		<TemplateEditor
+			template={template}
+			title="Edit Template"
+			event={event}
+			intent="edit"
+		/>
 	)
 }

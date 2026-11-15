@@ -2,7 +2,14 @@ import { parseWithZod } from '@conform-to/zod'
 import { getFormProps, useForm } from '@conform-to/react'
 import { getZodConstraint } from '@conform-to/zod'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
-import { Form, useActionData, useLoaderData, useNavigate, useNavigation, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useLoaderData,
+	useNavigate,
+	useNavigation,
+	useParams,
+} from '@remix-run/react'
 import { useState } from 'react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
@@ -28,25 +35,32 @@ import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
 
-const RemoveRestrictionSchema = z.object({
-	restrictionId: z.string({ required_error: 'Please select a restriction' }),
-	constraintTarget: z.enum(['all', 'selected']),
-	constraintKeys: z.array(z.string()).optional(),
-	invitationTarget: z.enum(['all', 'selected']),
-	invitationIds: z.array(z.string()).optional(),
-}).refine(
-	data => data.constraintTarget === 'all' || (data.constraintKeys && data.constraintKeys.length > 0),
-	{
-		message: 'Please select at least one constraint',
-		path: ['constraintKeys'],
-	}
-).refine(
-	data => data.invitationTarget === 'all' || (data.invitationIds && data.invitationIds.length > 0),
-	{
-		message: 'Please select at least one invitation',
-		path: ['invitationIds'],
-	}
-)
+const RemoveRestrictionSchema = z
+	.object({
+		restrictionId: z.string({ required_error: 'Please select a restriction' }),
+		constraintTarget: z.enum(['all', 'selected']),
+		constraintKeys: z.array(z.string()).optional(),
+		invitationTarget: z.enum(['all', 'selected']),
+		invitationIds: z.array(z.string()).optional(),
+	})
+	.refine(
+		data =>
+			data.constraintTarget === 'all' ||
+			(data.constraintKeys && data.constraintKeys.length > 0),
+		{
+			message: 'Please select at least one constraint',
+			path: ['constraintKeys'],
+		},
+	)
+	.refine(
+		data =>
+			data.invitationTarget === 'all' ||
+			(data.invitationIds && data.invitationIds.length > 0),
+		{
+			message: 'Please select at least one invitation',
+			path: ['invitationIds'],
+		},
+	)
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, ['admin', 'tenant'])
@@ -86,7 +100,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 
 	// Group constraints by restriction
-	const restrictionConstraintsMap = new Map<string, Array<{ participantTypeId: string; accessLevel: string }>>()
+	const restrictionConstraintsMap = new Map<
+		string,
+		Array<{ participantTypeId: string; accessLevel: string }>
+	>()
 	for (const constraint of appliedConstraints) {
 		const key = constraint.sourceRestrictionId!
 		if (!restrictionConstraintsMap.has(key)) {
@@ -124,7 +141,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		orderBy: { name: 'asc' },
 	})
 
-	return json({ event, restrictions: restrictionsWithConstraints, invitations, participantTypes })
+	return json({
+		event,
+		restrictions: restrictionsWithConstraints,
+		invitations,
+		participantTypes,
+	})
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -146,13 +168,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		)
 	}
 
-	const { restrictionId, constraintTarget, constraintKeys, invitationTarget, invitationIds } = submission.value
+	const {
+		restrictionId,
+		constraintTarget,
+		constraintKeys,
+		invitationTarget,
+		invitationIds,
+	} = submission.value
 
 	// Get invitations based on target
 	const invitations = await prisma.invitation.findMany({
-		where: invitationTarget === 'all'
-			? { eventId }
-			: { id: { in: invitationIds } },
+		where:
+			invitationTarget === 'all' ? { eventId } : { id: { in: invitationIds } },
 		select: { id: true },
 	})
 
@@ -163,7 +190,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	// If specific constraints selected, filter by them
-	if (constraintTarget === 'selected' && constraintKeys && constraintKeys.length > 0) {
+	if (
+		constraintTarget === 'selected' &&
+		constraintKeys &&
+		constraintKeys.length > 0
+	) {
 		// constraintKeys are formatted as "participantTypeId:accessLevel"
 		const constraintFilters = constraintKeys.map(key => {
 			const [participantTypeId, accessLevel] = key.split(':')
@@ -187,7 +218,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RemoveRestrictionRoute() {
-	const { event, restrictions, invitations, participantTypes } = useLoaderData<typeof loader>()
+	const { event, restrictions, invitations, participantTypes } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const navigate = useNavigate()
@@ -195,13 +227,20 @@ export default function RemoveRestrictionRoute() {
 	const isSubmitting = navigation.state === 'submitting'
 
 	const [selectedRestrictionId, setSelectedRestrictionId] = useState<string>('')
-	const [constraintTarget, setConstraintTarget] = useState<'all' | 'selected'>('all')
+	const [constraintTarget, setConstraintTarget] = useState<'all' | 'selected'>(
+		'all',
+	)
 	const [selectedConstraints, setSelectedConstraints] = useState<string[]>([])
-	const [invitationTarget, setInvitationTarget] = useState<'all' | 'selected'>('all')
+	const [invitationTarget, setInvitationTarget] = useState<'all' | 'selected'>(
+		'all',
+	)
 	const [selectedInvitations, setSelectedInvitations] = useState<string[]>([])
 
-	const selectedRestriction = restrictions.find(r => r.id === selectedRestrictionId)
-	const getParticipantTypeName = (id: string) => participantTypes.find(pt => pt.id === id)?.name ?? 'Unknown'
+	const selectedRestriction = restrictions.find(
+		r => r.id === selectedRestrictionId,
+	)
+	const getParticipantTypeName = (id: string) =>
+		participantTypes.find(pt => pt.id === id)?.name ?? 'Unknown'
 
 	const [form, fields] = useForm({
 		id: 'remove-restriction',
@@ -222,16 +261,23 @@ export default function RemoveRestrictionRoute() {
 
 	const handleSelectAllConstraints = () => {
 		if (!selectedRestriction) return
-		if (selectedConstraints.length === selectedRestriction.appliedConstraints.length) {
+		if (
+			selectedConstraints.length ===
+			selectedRestriction.appliedConstraints.length
+		) {
 			setSelectedConstraints([])
 		} else {
-			setSelectedConstraints(selectedRestriction.appliedConstraints.map(c => `${c.participantTypeId}:${c.accessLevel}`))
+			setSelectedConstraints(
+				selectedRestriction.appliedConstraints.map(
+					c => `${c.participantTypeId}:${c.accessLevel}`,
+				),
+			)
 		}
 	}
 
 	const handleToggleConstraint = (key: string) => {
 		setSelectedConstraints(prev =>
-			prev.includes(key) ? prev.filter(i => i !== key) : [...prev, key]
+			prev.includes(key) ? prev.filter(i => i !== key) : [...prev, key],
 		)
 	}
 
@@ -245,7 +291,7 @@ export default function RemoveRestrictionRoute() {
 
 	const handleToggleInvitation = (id: string) => {
 		setSelectedInvitations(prev =>
-			prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+			prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id],
 		)
 	}
 
@@ -257,26 +303,27 @@ export default function RemoveRestrictionRoute() {
 
 	const hasRestrictions = restrictions.length > 0
 
-	const constraintCount = constraintTarget === 'all'
-		? (selectedRestriction?.appliedConstraints.length ?? 0)
-		: selectedConstraints.length
-	const invitationCount = invitationTarget === 'all'
-		? invitations.length
-		: selectedInvitations.length
+	const constraintCount =
+		constraintTarget === 'all'
+			? (selectedRestriction?.appliedConstraints.length ?? 0)
+			: selectedConstraints.length
+	const invitationCount =
+		invitationTarget === 'all' ? invitations.length : selectedInvitations.length
 
 	const buttonLabel = isSubmitting
 		? 'Removing...'
 		: `Remove ${constraintCount} Constraint${constraintCount === 1 ? '' : 's'} from ${invitationCount} Invitation${invitationCount === 1 ? '' : 's'}`
 
-	const isDisabled = isSubmitting
-		|| !selectedRestrictionId
-		|| (constraintTarget === 'selected' && selectedConstraints.length === 0)
-		|| (invitationTarget === 'selected' && selectedInvitations.length === 0)
+	const isDisabled =
+		isSubmitting ||
+		!selectedRestrictionId ||
+		(constraintTarget === 'selected' && selectedConstraints.length === 0) ||
+		(invitationTarget === 'selected' && selectedInvitations.length === 0)
 
 	return (
 		<Dialog open={true} onOpenChange={handleClose}>
 			<DialogContent
-				className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
+				className="max-h-[90vh] overflow-y-auto sm:max-w-[600px]"
 				onInteractOutside={e => e.preventDefault()}
 			>
 				<DialogHeader>
@@ -284,7 +331,7 @@ export default function RemoveRestrictionRoute() {
 					<DialogDescription>
 						{hasRestrictions
 							? "Remove constraints that were applied from a specific restriction. Only constraints created via 'Apply' will be removed."
-							: "No restrictions have been applied to invitations yet."}
+							: 'No restrictions have been applied to invitations yet.'}
 					</DialogDescription>
 				</DialogHeader>
 
@@ -295,7 +342,9 @@ export default function RemoveRestrictionRoute() {
 
 						<div className="grid gap-4 py-4">
 							<Field>
-								<Label htmlFor={fields.restrictionId.id}>Select Restriction to Remove</Label>
+								<Label htmlFor={fields.restrictionId.id}>
+									Select Restriction to Remove
+								</Label>
 								<SelectField
 									meta={fields.restrictionId}
 									items={restrictions.map(r => ({
@@ -316,13 +365,16 @@ export default function RemoveRestrictionRoute() {
 									<RadioGroup
 										name={fields.constraintTarget.name}
 										defaultValue="all"
-										onValueChange={(value) => setConstraintTarget(value as 'all' | 'selected')}
+										onValueChange={value =>
+											setConstraintTarget(value as 'all' | 'selected')
+										}
 									>
 										<div className="flex items-start space-x-3">
 											<RadioGroupItem value="all" id="constraint-all" />
 											<div className="space-y-1">
 												<Label htmlFor="constraint-all" className="font-medium">
-													All Constraints ({selectedRestriction.appliedConstraints.length})
+													All Constraints (
+													{selectedRestriction.appliedConstraints.length})
 												</Label>
 												<p className="text-sm text-muted-foreground">
 													Remove all constraints from this restriction
@@ -330,9 +382,15 @@ export default function RemoveRestrictionRoute() {
 											</div>
 										</div>
 										<div className="flex items-start space-x-3">
-											<RadioGroupItem value="selected" id="constraint-selected" />
+											<RadioGroupItem
+												value="selected"
+												id="constraint-selected"
+											/>
 											<div className="space-y-1">
-												<Label htmlFor="constraint-selected" className="font-medium">
+												<Label
+													htmlFor="constraint-selected"
+													className="font-medium"
+												>
 													Selected Constraints
 												</Label>
 												<p className="text-sm text-muted-foreground">
@@ -341,23 +399,28 @@ export default function RemoveRestrictionRoute() {
 											</div>
 										</div>
 									</RadioGroup>
-									{fields.constraintTarget.errors && <FieldError>{fields.constraintTarget.errors}</FieldError>}
+									{fields.constraintTarget.errors && (
+										<FieldError>{fields.constraintTarget.errors}</FieldError>
+									)}
 								</Field>
 							)}
 
 							{selectedRestriction && constraintTarget === 'selected' && (
 								<Field>
-									<div className="flex items-center justify-between mb-2">
+									<div className="mb-2 flex items-center justify-between">
 										<Label>Select Constraints</Label>
 										<button
 											type="button"
 											onClick={handleSelectAllConstraints}
 											className="text-sm text-primary hover:underline"
 										>
-											{selectedConstraints.length === selectedRestriction.appliedConstraints.length ? 'Deselect All' : 'Select All'}
+											{selectedConstraints.length ===
+											selectedRestriction.appliedConstraints.length
+												? 'Deselect All'
+												: 'Select All'}
 										</button>
 									</div>
-									<div className="max-h-40 overflow-y-auto rounded-md border p-2 space-y-2">
+									<div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-2">
 										{selectedRestriction.appliedConstraints.map(constraint => {
 											const key = `${constraint.participantTypeId}:${constraint.accessLevel}`
 											return (
@@ -375,10 +438,14 @@ export default function RemoveRestrictionRoute() {
 													/>
 													<label
 														htmlFor={`constraint-${key}`}
-														className="text-sm cursor-pointer flex-1"
+														className="flex-1 cursor-pointer text-sm"
 													>
-														<span className="font-medium">{getParticipantTypeName(constraint.participantTypeId)}</span>
-														<span className="text-muted-foreground ml-2">
+														<span className="font-medium">
+															{getParticipantTypeName(
+																constraint.participantTypeId,
+															)}
+														</span>
+														<span className="ml-2 text-muted-foreground">
 															({constraint.accessLevel})
 														</span>
 													</label>
@@ -387,7 +454,7 @@ export default function RemoveRestrictionRoute() {
 										})}
 									</div>
 									{selectedConstraints.length === 0 && (
-										<p className="text-sm text-destructive mt-1">
+										<p className="mt-1 text-sm text-destructive">
 											Please select at least one constraint
 										</p>
 									)}
@@ -402,7 +469,9 @@ export default function RemoveRestrictionRoute() {
 								<RadioGroup
 									name={fields.invitationTarget.name}
 									defaultValue="all"
-									onValueChange={(value) => setInvitationTarget(value as 'all' | 'selected')}
+									onValueChange={value =>
+										setInvitationTarget(value as 'all' | 'selected')
+									}
 								>
 									<div className="flex items-start space-x-3">
 										<RadioGroupItem value="all" id="invitation-all" />
@@ -418,56 +487,75 @@ export default function RemoveRestrictionRoute() {
 									<div className="flex items-start space-x-3">
 										<RadioGroupItem value="selected" id="invitation-selected" />
 										<div className="space-y-1">
-											<Label htmlFor="invitation-selected" className="font-medium">
+											<Label
+												htmlFor="invitation-selected"
+												className="font-medium"
+											>
 												Selected Invitations
 											</Label>
 											<p className="text-sm text-muted-foreground">
-												Choose specific invitations to remove the restriction from
+												Choose specific invitations to remove the restriction
+												from
 											</p>
 										</div>
 									</div>
 								</RadioGroup>
-								{fields.invitationTarget.errors && <FieldError>{fields.invitationTarget.errors}</FieldError>}
+								{fields.invitationTarget.errors && (
+									<FieldError>{fields.invitationTarget.errors}</FieldError>
+								)}
 							</Field>
 
 							{invitationTarget === 'selected' && (
 								<Field>
-									<div className="flex items-center justify-between mb-2">
+									<div className="mb-2 flex items-center justify-between">
 										<Label>Select Invitations</Label>
 										<button
 											type="button"
 											onClick={handleSelectAllInvitations}
 											className="text-sm text-primary hover:underline"
 										>
-											{selectedInvitations.length === invitations.length ? 'Deselect All' : 'Select All'}
+											{selectedInvitations.length === invitations.length
+												? 'Deselect All'
+												: 'Select All'}
 										</button>
 									</div>
-									<div className="max-h-40 overflow-y-auto rounded-md border p-2 space-y-2">
+									<div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-2">
 										{invitations.map(invitation => (
-											<div key={invitation.id} className="flex items-center space-x-2">
+											<div
+												key={invitation.id}
+												className="flex items-center space-x-2"
+											>
 												<Checkbox
 													id={invitation.id}
 													checked={selectedInvitations.includes(invitation.id)}
-													onCheckedChange={() => handleToggleInvitation(invitation.id)}
+													onCheckedChange={() =>
+														handleToggleInvitation(invitation.id)
+													}
 												/>
 												<input
 													type="hidden"
 													name="invitationIds"
 													value={invitation.id}
-													disabled={!selectedInvitations.includes(invitation.id)}
+													disabled={
+														!selectedInvitations.includes(invitation.id)
+													}
 												/>
 												<label
 													htmlFor={invitation.id}
-													className="text-sm cursor-pointer flex-1"
+													className="flex-1 cursor-pointer text-sm"
 												>
-													<span className="font-medium">{invitation.organization}</span>
-													<span className="text-muted-foreground ml-2">({invitation.email})</span>
+													<span className="font-medium">
+														{invitation.organization}
+													</span>
+													<span className="ml-2 text-muted-foreground">
+														({invitation.email})
+													</span>
 												</label>
 											</div>
 										))}
 									</div>
 									{selectedInvitations.length === 0 && (
-										<p className="text-sm text-destructive mt-1">
+										<p className="mt-1 text-sm text-destructive">
 											Please select at least one invitation
 										</p>
 									)}
@@ -489,7 +577,7 @@ export default function RemoveRestrictionRoute() {
 					</Form>
 				) : (
 					<>
-						<div className="rounded-lg border border-muted bg-muted/50 p-6 text-center py-4">
+						<div className="rounded-lg border border-muted bg-muted/50 p-6 py-4 text-center">
 							<p className="text-muted-foreground">
 								No restrictions have been applied to invitations yet.
 							</p>

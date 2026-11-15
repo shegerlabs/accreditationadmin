@@ -1,5 +1,11 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
-import { Link, Outlet, useLoaderData, useLocation, useParams } from '@remix-run/react'
+import {
+	Link,
+	Outlet,
+	useLoaderData,
+	useLocation,
+	useParams,
+} from '@remix-run/react'
 import { EditIcon, LockIcon, TrashIcon, UserIcon } from 'lucide-react'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
@@ -11,28 +17,29 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { eventId } = params
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.restriction,
-		searchFields: ['name', { tenant: 'name' }, { event: 'name' }],
-		filterFields: ['tenantId', 'eventId'],
-		where: { eventId },
-		orderBy: [{ createdAt: 'desc' }],
-		select: {
-			id: true,
-			name: true,
-			tenant: {
-				select: {
-					name: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.restriction,
+			searchFields: ['name', { tenant: 'name' }, { event: 'name' }],
+			filterFields: ['tenantId', 'eventId'],
+			where: { eventId },
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				name: true,
+				tenant: {
+					select: {
+						name: true,
+					},
+				},
+				event: {
+					select: {
+						name: true,
+					},
 				},
 			},
-			event: {
-				select: {
-					name: true,
-				},
-			},
-		},
-	})
+		})
 
 	return json({
 		status: 'idle',
@@ -74,7 +81,10 @@ export default function RestrictionsRoute() {
 							key: 'name',
 							header: 'Restriction',
 							render: (restriction: any) => (
-								<Link to={`/admin/events/${eventId}/restrictions/${restriction.id}/constraints`} className="flex items-center space-x-2">
+								<Link
+									to={`/admin/events/${eventId}/restrictions/${restriction.id}/constraints`}
+									className="flex items-center space-x-2"
+								>
 									<UserIcon className="h-4 w-4 text-primary" />
 									<span>{restriction.name}</span>
 								</Link>
@@ -105,7 +115,6 @@ export default function RestrictionsRoute() {
 						},
 					]}
 					status={data.status}
-					
 					keyExtractor={restriction => restriction.id}
 					totalPages={totalPages}
 					currentPage={currentPage}

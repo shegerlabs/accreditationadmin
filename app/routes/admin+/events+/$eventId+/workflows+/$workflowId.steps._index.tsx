@@ -13,46 +13,50 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { workflowId } = params
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.step,
-		searchFields: [{ role: 'name' }],
-		filterFields: ['roleId'],
-		where: { workflowId },
-		orderBy: [{ order: 'asc' }],
-		select: {
-			id: true,
-			name: true,
-			action: true,
-			order: true,
-			nextStepId: true,
-			roleId: true,
-			role: {
-				select: {
-					id: true,
-					name: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.step,
+			searchFields: [{ role: 'name' }],
+			filterFields: ['roleId'],
+			where: { workflowId },
+			orderBy: [{ order: 'asc' }],
+			select: {
+				id: true,
+				name: true,
+				action: true,
+				order: true,
+				nextStepId: true,
+				roleId: true,
+				role: {
+					select: {
+						id: true,
+						name: true,
+					},
 				},
 			},
-		},
-	})
+		})
 
 	// Fetch next step names for all steps that have nextStepId
 	const nextStepIds = data
 		.map(step => step.nextStepId)
 		.filter((id): id is string => id !== null)
 
-	const nextSteps = nextStepIds.length > 0
-		? await prisma.step.findMany({
-				where: { id: { in: nextStepIds } },
-				select: { id: true, name: true },
-			})
-		: []
+	const nextSteps =
+		nextStepIds.length > 0
+			? await prisma.step.findMany({
+					where: { id: { in: nextStepIds } },
+					select: { id: true, name: true },
+				})
+			: []
 
 	const nextStepMap = new Map(nextSteps.map(s => [s.id, s.name]))
 
 	const stepsWithNextStep = data.map(step => ({
 		...step,
-		nextStep: step.nextStepId ? { name: nextStepMap.get(step.nextStepId) ?? null } : null,
+		nextStep: step.nextStepId
+			? { name: nextStepMap.get(step.nextStepId) ?? null }
+			: null,
 	}))
 
 	const roles = await prisma.role.findMany({
@@ -73,7 +77,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function StepsListRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { workflow } = useOutletContext<{ workflow: SerializeFrom<WorkflowData> }>()
+	const { workflow } = useOutletContext<{
+		workflow: SerializeFrom<WorkflowData>
+	}>()
 	const { totalPages, currentPage, defaultPageSize, pageSizeOptions } = data
 	const { eventId, workflowId } = useParams()
 
@@ -156,7 +162,6 @@ export default function StepsListRoute() {
 					},
 				]}
 				status={data.status}
-				
 				keyExtractor={(step: any) => step.id}
 				totalPages={totalPages}
 				currentPage={currentPage}

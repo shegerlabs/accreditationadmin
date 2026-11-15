@@ -87,13 +87,10 @@ const BulkCreateSchema = z
 		scope: z.enum(['all', 'some']),
 		participantTypeIds: z.array(z.string()),
 	})
-	.refine(
-		data => data.scope === 'all' || data.participantTypeIds.length > 0,
-		{
-			message: 'Select at least one participant type',
-			path: ['participantTypeIds'],
-		},
-	)
+	.refine(data => data.scope === 'all' || data.participantTypeIds.length > 0, {
+		message: 'Select at least one participant type',
+		path: ['participantTypeIds'],
+	})
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, ['admin', 'tenant'])
@@ -174,7 +171,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		)
 	}
 
-	const { scope, participantTypeIds: selectedIds, badgeTemplateId } = submission.value
+	const {
+		scope,
+		participantTypeIds: selectedIds,
+		badgeTemplateId,
+	} = submission.value
 
 	const event = await prisma.event.findUnique({
 		select: { id: true, tenantId: true },
@@ -193,9 +194,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			where: { eventId },
 			select: { participantTypeId: true },
 		})
-		const existingSet = new Set(
-			existingTemplates.map(t => t.participantTypeId),
-		)
+		const existingSet = new Set(existingTemplates.map(t => t.participantTypeId))
 
 		targetParticipantTypeIds = allParticipantTypes
 			.filter(pt => !existingSet.has(pt.id))
@@ -257,9 +256,9 @@ export default function BulkCreateTemplatesRoute() {
 	const cancelUrl = `/admin/events/${eventId}/templates`
 
 	// Get initial badge template (default or first available)
-	const initialBadgeTemplate = (badgeTemplates as BadgeTemplateWithDetails[]).find(
-		t => t.isDefault,
-	) ?? (badgeTemplates[0] as BadgeTemplateWithDetails | undefined)
+	const initialBadgeTemplate =
+		(badgeTemplates as BadgeTemplateWithDetails[]).find(t => t.isDefault) ??
+		(badgeTemplates[0] as BadgeTemplateWithDetails | undefined)
 
 	const [selectedBadgeTemplateId, setSelectedBadgeTemplateId] = useState(
 		() => initialBadgeTemplate?.id ?? '',
@@ -269,7 +268,9 @@ export default function BulkCreateTemplatesRoute() {
 	const selectedBadgeTemplate =
 		(badgeTemplates as BadgeTemplateWithDetails[]).find(
 			t => t.id === selectedBadgeTemplateId,
-		) ?? initialBadgeTemplate ?? null
+		) ??
+		initialBadgeTemplate ??
+		null
 
 	const [form, fields] = useForm({
 		id: 'bulk-create-templates',
@@ -372,8 +373,8 @@ export default function BulkCreateTemplatesRoute() {
 				<DialogHeader>
 					<DialogTitle>Bulk Create Templates</DialogTitle>
 					<DialogDescription>
-						Create badge templates for participant types using the selected badge
-						design.
+						Create badge templates for participant types using the selected
+						badge design.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -413,94 +414,98 @@ export default function BulkCreateTemplatesRoute() {
 							</Field>
 
 							<Field>
-							<Label>Create For</Label>
-							{existingParticipantTypeIds.length > 0 && (
-								<p className="mb-3 text-sm text-muted-foreground">
-									{existingParticipantTypeIds.length} participant type(s) already
-									have templates and will be skipped.
-								</p>
-							)}
-							<RadioGroup
-								name="scope"
-								defaultValue="all"
-								onValueChange={value => setScope(value as 'all' | 'some')}
-								className="space-y-3"
-							>
-								<div className="flex items-center space-x-3">
-									<RadioGroupItem value="all" id="scope-all" />
-									<Label
-										htmlFor="scope-all"
-										className="cursor-pointer font-normal"
-									>
-										All participant types ({availableParticipantTypes.length}{' '}
-										available)
-									</Label>
-								</div>
-								<div className="flex items-center space-x-3">
-									<RadioGroupItem value="some" id="scope-some" />
-									<Label
-										htmlFor="scope-some"
-										className="cursor-pointer font-normal"
-									>
-										Select specific participant types
-									</Label>
-								</div>
-							</RadioGroup>
-						</Field>
-
-						{scope === 'some' && (
-							<Field>
-								<div className="flex items-center justify-between">
-									<Label>Select Participant Types</Label>
-									<Button
-										type="button"
-										variant="ghost"
-										size="sm"
-										onClick={() => {
-											if (selectedIds.size === availableParticipantTypes.length) {
-												setSelectedIds(new Set())
-											} else {
-												setSelectedIds(new Set(availableParticipantTypes.map(pt => pt.id)))
-											}
-										}}
-									>
-										{selectedIds.size === availableParticipantTypes.length
-											? 'Deselect All'
-											: 'Select All'}
-									</Button>
-								</div>
-								<div className="max-h-48 space-y-3 overflow-y-auto rounded-md border p-4">
-									{availableParticipantTypes.map(pt => (
-										<div key={pt.id} className="flex items-center space-x-3">
-											<Checkbox
-												id={`pt-${pt.id}`}
-												name="participantTypeIds"
-												value={pt.id}
-												checked={selectedIds.has(pt.id)}
-												onCheckedChange={checked => {
-													const newSet = new Set(selectedIds)
-													if (checked) {
-														newSet.add(pt.id)
-													} else {
-														newSet.delete(pt.id)
-													}
-													setSelectedIds(newSet)
-												}}
-											/>
-											<Label
-												htmlFor={`pt-${pt.id}`}
-												className="cursor-pointer font-normal"
-											>
-												{pt.name}
-											</Label>
-										</div>
-									))}
-								</div>
-								{fields.participantTypeIds.errors && (
-									<FieldError>{fields.participantTypeIds.errors}</FieldError>
+								<Label>Create For</Label>
+								{existingParticipantTypeIds.length > 0 && (
+									<p className="mb-3 text-sm text-muted-foreground">
+										{existingParticipantTypeIds.length} participant type(s)
+										already have templates and will be skipped.
+									</p>
 								)}
+								<RadioGroup
+									name="scope"
+									defaultValue="all"
+									onValueChange={value => setScope(value as 'all' | 'some')}
+									className="space-y-3"
+								>
+									<div className="flex items-center space-x-3">
+										<RadioGroupItem value="all" id="scope-all" />
+										<Label
+											htmlFor="scope-all"
+											className="cursor-pointer font-normal"
+										>
+											All participant types ({availableParticipantTypes.length}{' '}
+											available)
+										</Label>
+									</div>
+									<div className="flex items-center space-x-3">
+										<RadioGroupItem value="some" id="scope-some" />
+										<Label
+											htmlFor="scope-some"
+											className="cursor-pointer font-normal"
+										>
+											Select specific participant types
+										</Label>
+									</div>
+								</RadioGroup>
 							</Field>
-						)}
+
+							{scope === 'some' && (
+								<Field>
+									<div className="flex items-center justify-between">
+										<Label>Select Participant Types</Label>
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											onClick={() => {
+												if (
+													selectedIds.size === availableParticipantTypes.length
+												) {
+													setSelectedIds(new Set())
+												} else {
+													setSelectedIds(
+														new Set(availableParticipantTypes.map(pt => pt.id)),
+													)
+												}
+											}}
+										>
+											{selectedIds.size === availableParticipantTypes.length
+												? 'Deselect All'
+												: 'Select All'}
+										</Button>
+									</div>
+									<div className="max-h-48 space-y-3 overflow-y-auto rounded-md border p-4">
+										{availableParticipantTypes.map(pt => (
+											<div key={pt.id} className="flex items-center space-x-3">
+												<Checkbox
+													id={`pt-${pt.id}`}
+													name="participantTypeIds"
+													value={pt.id}
+													checked={selectedIds.has(pt.id)}
+													onCheckedChange={checked => {
+														const newSet = new Set(selectedIds)
+														if (checked) {
+															newSet.add(pt.id)
+														} else {
+															newSet.delete(pt.id)
+														}
+														setSelectedIds(newSet)
+													}}
+												/>
+												<Label
+													htmlFor={`pt-${pt.id}`}
+													className="cursor-pointer font-normal"
+												>
+													{pt.name}
+												</Label>
+											</div>
+										))}
+									</div>
+									{fields.participantTypeIds.errors && (
+										<FieldError>{fields.participantTypeIds.errors}</FieldError>
+									)}
+								</Field>
+							)}
 
 							<p className="text-xs text-muted-foreground">
 								Note: Front and back background images can be uploaded later by

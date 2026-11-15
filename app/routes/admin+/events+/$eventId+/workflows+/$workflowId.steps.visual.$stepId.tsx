@@ -1,5 +1,10 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
-import { useLoaderData, useNavigate, useOutletContext, useParams } from '@remix-run/react'
+import {
+	useLoaderData,
+	useNavigate,
+	useOutletContext,
+	useParams,
+} from '@remix-run/react'
 import type { SerializeFrom } from '@remix-run/node'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'

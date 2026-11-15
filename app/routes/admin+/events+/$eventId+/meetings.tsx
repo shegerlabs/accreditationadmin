@@ -11,51 +11,52 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	await requireUserWithRoles(request, ['admin', 'tenant'])
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.meeting,
-		searchFields: [
-			{ meetingType: 'name' },
-			{ tenant: 'name' },
-			{ event: 'name' },
-			{ venue: 'name' },
-		],
-		filterFields: [
-			'tenantId',
-			'eventId',
-			'venueId',
-			'meetingTypeId',
-			'accessLevel',
-		],
-		where: { eventId },
-		orderBy: [{ createdAt: 'desc' }],
-		select: {
-			id: true,
-			startDate: true,
-			endDate: true,
-			accessLevel: true,
-			tenant: {
-				select: {
-					name: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.meeting,
+			searchFields: [
+				{ meetingType: 'name' },
+				{ tenant: 'name' },
+				{ event: 'name' },
+				{ venue: 'name' },
+			],
+			filterFields: [
+				'tenantId',
+				'eventId',
+				'venueId',
+				'meetingTypeId',
+				'accessLevel',
+			],
+			where: { eventId },
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				startDate: true,
+				endDate: true,
+				accessLevel: true,
+				tenant: {
+					select: {
+						name: true,
+					},
+				},
+				event: {
+					select: {
+						name: true,
+					},
+				},
+				venue: {
+					select: {
+						name: true,
+					},
+				},
+				meetingType: {
+					select: {
+						name: true,
+					},
 				},
 			},
-			event: {
-				select: {
-					name: true,
-				},
-			},
-			venue: {
-				select: {
-					name: true,
-				},
-			},
-			meetingType: {
-				select: {
-					name: true,
-				},
-			},
-		},
-	})
+		})
 
 	const venues = await prisma.venue.findMany({
 		select: {
@@ -85,7 +86,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function MeetingsRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage, defaultPageSize, pageSizeOptions, venues, meetingTypes } = data
+	const {
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		venues,
+		meetingTypes,
+	} = data
 	const params = useParams()
 	const eventId = params.eventId
 
@@ -176,7 +184,6 @@ export default function MeetingsRoute() {
 						},
 					]}
 					status={data.status}
-					
 					keyExtractor={meeting => meeting.id}
 					totalPages={totalPages}
 					currentPage={currentPage}

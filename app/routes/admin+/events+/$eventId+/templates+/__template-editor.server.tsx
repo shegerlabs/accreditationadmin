@@ -49,7 +49,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
 		const templateToDelete = await prisma.template.findUnique({
 			where: { id: submission.value.id },
-			select: { id: true, name: true, eventId: true, tenantId: true, event: { select: { name: true } } },
+			select: {
+				id: true,
+				name: true,
+				eventId: true,
+				tenantId: true,
+				event: { select: { name: true } },
+			},
 		})
 
 		const template = await prisma.template.delete({

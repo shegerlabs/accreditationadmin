@@ -2,7 +2,13 @@ import { getFormProps, getInputProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
 import { Constraint, ParticipantType, Restriction } from '@prisma/client'
 import { SerializeFrom } from '@remix-run/node'
-import { Form, useActionData, useNavigate, useOutletContext, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useNavigate,
+	useOutletContext,
+	useParams,
+} from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { z } from 'zod'
@@ -96,7 +102,9 @@ export function ConstraintEditor({
 	})
 
 	const handleClose = () =>
-		navigate(`/admin/events/${eventId}/restrictions/${restrictionId}/constraints`)
+		navigate(
+			`/admin/events/${eventId}/restrictions/${restrictionId}/constraints`,
+		)
 
 	return (
 		<Dialog open={true} onOpenChange={handleClose}>

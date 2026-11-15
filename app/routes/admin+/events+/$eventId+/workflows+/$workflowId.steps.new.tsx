@@ -47,7 +47,8 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export default function NewStepSheetRoute() {
-	const { workflow, steps, roles, defaultAction } = useLoaderData<typeof loader>()
+	const { workflow, steps, roles, defaultAction } =
+		useLoaderData<typeof loader>()
 	const { eventId, workflowId } = useParams()
 	const cancelUrl = `/admin/events/${eventId}/workflows/${workflowId}/steps`
 

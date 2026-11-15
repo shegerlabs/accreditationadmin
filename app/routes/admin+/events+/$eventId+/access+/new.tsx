@@ -10,7 +10,12 @@ type Workflow = {
 	id: string
 	name: string
 	participantType: { id: string; name: string }
-	steps: { id: string; name: string; order: number; requiresAssignment: boolean }[]
+	steps: {
+		id: string
+		name: string
+		order: number
+		requiresAssignment: boolean
+	}[]
 }
 
 type OutletContext = {

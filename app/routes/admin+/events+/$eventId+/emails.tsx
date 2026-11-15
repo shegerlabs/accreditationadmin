@@ -7,7 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
 import { requireAdminAccess } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
-import { EMAIL_TEMPLATE_DEFAULTS, EMAIL_TRIGGERS } from '~/utils/participant-email'
+import {
+	EMAIL_TEMPLATE_DEFAULTS,
+	EMAIL_TRIGGERS,
+} from '~/utils/participant-email'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const event = await prisma.event.findUnique({

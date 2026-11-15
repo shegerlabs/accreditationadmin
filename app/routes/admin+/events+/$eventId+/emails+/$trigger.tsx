@@ -7,7 +7,13 @@ import {
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
 import { AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
-import { Form, useActionData, useLoaderData, useNavigate, useNavigation } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useLoaderData,
+	useNavigate,
+	useNavigation,
+} from '@remix-run/react'
 import { useState } from 'react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
@@ -42,7 +48,10 @@ import {
 	SAMPLE_EMAIL_VARIABLES,
 	type EmailTrigger,
 } from '~/utils/participant-email'
-import { getEffectiveTemplate, sendTestEmail } from '~/utils/participant-email.server'
+import {
+	getEffectiveTemplate,
+	sendTestEmail,
+} from '~/utils/participant-email.server'
 import { redirectWithToast } from '~/utils/toast.server'
 
 const withKnownPlaceholders = (value: string, ctx: z.RefinementCtx) => {
@@ -78,7 +87,9 @@ async function requireEventAndTrigger(
 	invariantResponse(event, 'Not Found', { status: 404 })
 	const user = await requireAdminAccess(request, event.tenantId)
 	const trigger = params.trigger as EmailTrigger
-	invariantResponse(EMAIL_TRIGGERS.includes(trigger), 'Not Found', { status: 404 })
+	invariantResponse(EMAIL_TRIGGERS.includes(trigger), 'Not Found', {
+		status: 404,
+	})
 	return { event, user, trigger }
 }
 
@@ -100,7 +111,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const label = EMAIL_TEMPLATE_DEFAULTS[trigger].label
 
 	if (intent === 'reset') {
-		await prisma.emailTemplate.deleteMany({ where: { eventId: event.id, trigger } })
+		await prisma.emailTemplate.deleteMany({
+			where: { eventId: event.id, trigger },
+		})
 		await auditRequest({
 			request,
 			action: AuditAction.DELETE,
@@ -137,13 +150,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			testResult:
 				result.status === 'success'
 					? { ok: true, message: `Test email sent to ${user.email}.` }
-					: { ok: false, message: `The test email to ${user.email} could not be sent.` },
+					: {
+							ok: false,
+							message: `The test email to ${user.email} could not be sent.`,
+						},
 		})
 	}
 
 	const template = await prisma.emailTemplate.upsert({
 		where: { eventId_trigger: { eventId: event.id, trigger } },
-		create: { eventId: event.id, trigger, enabled, subject, body, updatedById: user.id },
+		create: {
+			eventId: event.id,
+			trigger,
+			enabled,
+			subject,
+			body,
+			updatedById: user.id,
+		},
 		update: { enabled, subject, body, updatedById: user.id },
 		select: { id: true },
 	})
@@ -191,7 +214,9 @@ export default function EditEmailTemplateRoute() {
 	})
 
 	const submittingIntent =
-		navigation.state === 'submitting' ? navigation.formData?.get('intent') : null
+		navigation.state === 'submitting'
+			? navigation.formData?.get('intent')
+			: null
 	const isBusy = navigation.state !== 'idle'
 	const handleClose = () => navigate(`/admin/events/${event.id}/emails`)
 
@@ -240,23 +265,28 @@ export default function EditEmailTemplateRoute() {
 									className="font-mono text-sm md:text-sm"
 									onChange={e => setBody(e.currentTarget.value)}
 								/>
-								{fields.body.errors && <FieldError>{fields.body.errors}</FieldError>}
+								{fields.body.errors && (
+									<FieldError>{fields.body.errors}</FieldError>
+								)}
 								<p className="text-xs text-muted-foreground">
-									Leave a blank line between paragraphs. Links are made clickable.
+									Leave a blank line between paragraphs. Links are made
+									clickable.
 								</p>
 							</Field>
 
 							<div>
 								<p className="mb-2 text-sm font-medium">Placeholders</p>
 								<dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
-									{Object.entries(EMAIL_PLACEHOLDERS).map(([key, description]) => (
-										<div key={key} className="flex gap-2">
-											<dt>
-												<code className="rounded bg-muted px-1">{`{${key}}`}</code>
-											</dt>
-											<dd className="text-muted-foreground">{description}</dd>
-										</div>
-									))}
+									{Object.entries(EMAIL_PLACEHOLDERS).map(
+										([key, description]) => (
+											<div key={key} className="flex gap-2">
+												<dt>
+													<code className="rounded bg-muted px-1">{`{${key}}`}</code>
+												</dt>
+												<dd className="text-muted-foreground">{description}</dd>
+											</div>
+										),
+									)}
 								</dl>
 							</div>
 
@@ -304,7 +334,9 @@ export default function EditEmailTemplateRoute() {
 									formNoValidate
 									disabled={isBusy}
 								>
-									{submittingIntent === 'reset' ? 'Resetting...' : 'Reset to default'}
+									{submittingIntent === 'reset'
+										? 'Resetting...'
+										: 'Reset to default'}
 								</Button>
 							)}
 							<Button
@@ -314,14 +346,21 @@ export default function EditEmailTemplateRoute() {
 								variant="outline"
 								disabled={isBusy}
 							>
-								{submittingIntent === 'test' ? 'Sending test...' : 'Send test to me'}
+								{submittingIntent === 'test'
+									? 'Sending test...'
+									: 'Send test to me'}
 							</Button>
 						</div>
 						<div className="flex flex-col gap-2 sm:flex-row">
 							<Button type="button" variant="outline" onClick={handleClose}>
 								Cancel
 							</Button>
-							<Button type="submit" name="intent" value="save" disabled={isBusy}>
+							<Button
+								type="submit"
+								name="intent"
+								value="save"
+								disabled={isBusy}
+							>
 								{submittingIntent === 'save' ? 'Saving...' : 'Save'}
 							</Button>
 						</div>

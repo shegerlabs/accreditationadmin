@@ -36,7 +36,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
 		const restrictionToDelete = await prisma.restriction.findUnique({
 			where: { id: submission.value.id },
-			select: { id: true, name: true, eventId: true, tenantId: true, event: { select: { name: true } } },
+			select: {
+				id: true,
+				name: true,
+				eventId: true,
+				tenantId: true,
+				event: { select: { name: true } },
+			},
 		})
 
 		const restriction = await prisma.restriction.delete({
@@ -101,7 +107,12 @@ export async function action({ request }: ActionFunctionArgs) {
 	const isUpdate = !!restrictionId
 
 	const restriction = await prisma.restriction.upsert({
-		select: { id: true, name: true, tenantId: true, event: { select: { name: true } } },
+		select: {
+			id: true,
+			name: true,
+			tenantId: true,
+			event: { select: { name: true } },
+		},
 		where: { id: restrictionId ?? '__new_restriction__' },
 		create: {
 			...data,

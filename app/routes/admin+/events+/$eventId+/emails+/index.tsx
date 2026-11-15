@@ -39,7 +39,11 @@ import { redirectWithToast } from '~/utils/toast.server'
 
 // Not Object.values(EmailStatus): runtime values from @prisma/client in the
 // component pull a module into the browser bundle that browsers can't load.
-const EMAIL_STATUSES = ['SENT', 'FAILED', 'PENDING'] as const satisfies readonly EmailStatus[]
+const EMAIL_STATUSES = [
+	'SENT',
+	'FAILED',
+	'PENDING',
+] as const satisfies readonly EmailStatus[]
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
 const DEFAULT_PAGE_SIZE = 25
@@ -241,9 +245,7 @@ export default function EventEmailLogRoute() {
 							<input type="hidden" name="intent" value="retry-failed" />
 							<Button type="submit" size="sm" disabled={isRetrying}>
 								<RotateCwIcon className="mr-2 h-4 w-4" />
-								{isRetrying
-									? 'Retrying...'
-									: `Retry ${retryCount} failed`}
+								{isRetrying ? 'Retrying...' : `Retry ${retryCount} failed`}
 							</Button>
 						</Form>
 					)}

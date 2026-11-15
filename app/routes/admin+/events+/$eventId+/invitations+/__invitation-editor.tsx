@@ -220,11 +220,7 @@ export function InvitationEditor({
 						<div className="grid gap-4 py-4">
 							<Field>
 								<Label htmlFor={fields.name.id}>Focal Person's Name</Label>
-								<InputField
-									meta={fields.name}
-									type="text"
-									autoComplete="off"
-								/>
+								<InputField meta={fields.name} type="text" autoComplete="off" />
 								<p className="text-xs text-muted-foreground">
 									Full name for the focal user account.
 								</p>
@@ -396,7 +392,7 @@ export function InvitationEditor({
 
 					{isDelete && invitation?.invitationConstraints && (
 						<div className="space-y-4 py-4">
-							<div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+							<div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
 								<div>
 									<span className="text-muted-foreground">Organization:</span>{' '}
 									<span className="font-medium">{invitation.organization}</span>

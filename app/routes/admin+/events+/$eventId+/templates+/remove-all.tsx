@@ -1,6 +1,12 @@
 import { getFormProps, useForm } from '@conform-to/react'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
-import { Form, useActionData, useLoaderData, useNavigate, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useLoaderData,
+	useNavigate,
+	useParams,
+} from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { Button } from '~/components/ui/button'
@@ -114,7 +120,8 @@ export default function RemoveAllTemplatesRoute() {
 					<DialogDescription>
 						Are you sure you want to remove all {templateCount} template
 						{templateCount !== 1 ? 's' : ''} from "{event.name}"? This will also
-						delete all attachments associated with them. This action cannot be undone.
+						delete all attachments associated with them. This action cannot be
+						undone.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -134,7 +141,7 @@ export default function RemoveAllTemplatesRoute() {
 							value="delete"
 							variant="destructive"
 							disabled={isPending}
-							status={isPending ? 'pending' : form.status ?? 'idle'}
+							status={isPending ? 'pending' : (form.status ?? 'idle')}
 						>
 							Remove {templateCount} Template{templateCount !== 1 ? 's' : ''}
 						</StatusButton>

@@ -24,7 +24,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const intent = formData.get('intent')
 
 	// Get redirect URL from form data, fallback to list view
-	const redirectUrl = formData.get('redirectUrl')?.toString() || `/admin/events/${eventId}/workflows/${workflowId}/steps`
+	const redirectUrl =
+		formData.get('redirectUrl')?.toString() ||
+		`/admin/events/${eventId}/workflows/${workflowId}/steps`
 
 	if (intent === 'delete') {
 		const submission = await parseWithZod(formData, {
@@ -70,14 +72,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			metadata: { step: stepToDelete },
 		})
 
-		return redirectWithToast(
-			redirectUrl,
-			{
-				type: 'success',
-				title: `Step Deleted`,
-				description: `Step deleted successfully.`,
-			},
-		)
+		return redirectWithToast(redirectUrl, {
+			type: 'success',
+			title: `Step Deleted`,
+			description: `Step deleted successfully.`,
+		})
 	}
 
 	const submission = await parseWithZod(formData, {
@@ -128,7 +127,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	invariantResponse(workflowForStep, 'Workflow not found', { status: 404 })
 
 	// Convert '__none__' placeholder to null for database
-	const resolvedNextStepId = nextStepId === '__none__' || !nextStepId ? null : nextStepId
+	const resolvedNextStepId =
+		nextStepId === '__none__' || !nextStepId ? null : nextStepId
 
 	// Check if isRejectionTarget or isBypassTarget is changing (must check BEFORE upsert)
 	let wasRejectionTarget = false
@@ -207,11 +207,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		// Find event-scoped roles (validator, reviewer, focal)
 		const roles = await prisma.role.findMany({
 			where: {
-				OR: [
-					{ name: 'validator' },
-					{ name: 'reviewer' },
-					{ name: 'focal' },
-				],
+				OR: [{ name: 'validator' }, { name: 'reviewer' }, { name: 'focal' }],
 			},
 			select: { id: true, name: true },
 		})
@@ -343,12 +339,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		},
 	})
 
-	return redirectWithToast(
-		redirectUrl,
-		{
-			type: 'success',
-			title: `Step ${isUpdate ? 'Updated' : 'Created'}`,
-			description: `Step ${isUpdate ? 'updated' : 'created'} successfully.`,
-		},
-	)
+	return redirectWithToast(redirectUrl, {
+		type: 'success',
+		title: `Step ${isUpdate ? 'Updated' : 'Created'}`,
+		description: `Step ${isUpdate ? 'updated' : 'created'} successfully.`,
+	})
 }

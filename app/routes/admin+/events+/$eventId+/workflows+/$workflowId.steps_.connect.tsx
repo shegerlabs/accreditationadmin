@@ -86,11 +86,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		// Find event-scoped roles (validator, reviewer, focal)
 		const roles = await prisma.role.findMany({
 			where: {
-				OR: [
-					{ name: 'validator' },
-					{ name: 'reviewer' },
-					{ name: 'focal' },
-				],
+				OR: [{ name: 'validator' }, { name: 'reviewer' }, { name: 'focal' }],
 			},
 			select: { id: true, name: true },
 		})
@@ -112,7 +108,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			})),
 		})
 
-		return json({ success: true, action: 'rejectStepsCreated', count: roles.length })
+		return json({
+			success: true,
+			action: 'rejectStepsCreated',
+			count: roles.length,
+		})
 	}
 
 	const sourceStepId = formData.get('sourceStepId') as string
@@ -130,10 +130,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 		// Prevent self-reference
 		if (sourceStepId === targetStepId) {
-			return json(
-				{ error: 'A step cannot connect to itself' },
-				{ status: 400 },
-			)
+			return json({ error: 'A step cannot connect to itself' }, { status: 400 })
 		}
 
 		// Check for cycles
@@ -169,7 +166,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const positionY = parseFloat(formData.get('positionY') as string)
 
 		if (isNaN(positionX) || isNaN(positionY)) {
-			return json({ error: 'Valid position coordinates are required' }, { status: 400 })
+			return json(
+				{ error: 'Valid position coordinates are required' },
+				{ status: 400 },
+			)
 		}
 
 		await prisma.step.update({

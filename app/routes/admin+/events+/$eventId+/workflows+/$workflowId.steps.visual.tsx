@@ -54,7 +54,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function VisualStepsLayout() {
 	const { steps, roles, allSteps } = useLoaderData<typeof loader>()
-	const { workflow } = useOutletContext<{ workflow: SerializeFrom<WorkflowData> }>()
+	const { workflow } = useOutletContext<{
+		workflow: SerializeFrom<WorkflowData>
+	}>()
 
 	return (
 		<div className="w-full">

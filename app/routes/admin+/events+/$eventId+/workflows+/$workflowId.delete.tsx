@@ -1,7 +1,13 @@
 import { getFormProps, useForm } from '@conform-to/react'
 import { parseWithZod } from '@conform-to/zod'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
-import { Form, useActionData, useLoaderData, useNavigate, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useLoaderData,
+	useNavigate,
+	useParams,
+} from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { ErrorList } from '~/components/forms'
@@ -84,7 +90,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	return json({
 		event,
-		workflow: { id: workflow.id, name: workflow.name, eventId: workflow.eventId },
+		workflow: {
+			id: workflow.id,
+			name: workflow.name,
+			eventId: workflow.eventId,
+		},
 		accessGrantCount,
 		affectedUserCount,
 		participantCount,
@@ -163,8 +173,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function DeleteWorkflowRoute() {
-	const { event, workflow, accessGrantCount, affectedUserCount, participantCount } =
-		useLoaderData<typeof loader>()
+	const {
+		event,
+		workflow,
+		accessGrantCount,
+		affectedUserCount,
+		participantCount,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const { eventId } = useParams()
 	const navigate = useNavigate()
@@ -198,24 +213,37 @@ export default function DeleteWorkflowRoute() {
 
 				{participantCount > 0 && (
 					<div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm">
-						<p className="font-medium text-destructive">Cannot Delete: Participants Registered</p>
+						<p className="font-medium text-destructive">
+							Cannot Delete: Participants Registered
+						</p>
 						<p className="mt-1 text-muted-foreground">
 							This workflow has{' '}
-							<span className="font-medium text-foreground">{participantCount}</span> participant
-							{participantCount !== 1 ? 's' : ''} registered. You must remove all participants
-							before deleting this workflow.
+							<span className="font-medium text-foreground">
+								{participantCount}
+							</span>{' '}
+							participant
+							{participantCount !== 1 ? 's' : ''} registered. You must remove
+							all participants before deleting this workflow.
 						</p>
 					</div>
 				)}
 
 				{accessGrantCount > 0 && participantCount === 0 && (
 					<div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm">
-						<p className="font-medium text-destructive">Warning: Access Grants Will Be Removed</p>
+						<p className="font-medium text-destructive">
+							Warning: Access Grants Will Be Removed
+						</p>
 						<p className="mt-1 text-muted-foreground">
 							Deleting this workflow will also remove{' '}
-							<span className="font-medium text-foreground">{accessGrantCount}</span> access grant
+							<span className="font-medium text-foreground">
+								{accessGrantCount}
+							</span>{' '}
+							access grant
 							{accessGrantCount !== 1 ? 's' : ''} for{' '}
-							<span className="font-medium text-foreground">{affectedUserCount}</span> user
+							<span className="font-medium text-foreground">
+								{affectedUserCount}
+							</span>{' '}
+							user
 							{affectedUserCount !== 1 ? 's' : ''}.
 						</p>
 					</div>
@@ -238,7 +266,7 @@ export default function DeleteWorkflowRoute() {
 							value="delete"
 							variant="destructive"
 							disabled={isPending || participantCount > 0}
-							status={isPending ? 'pending' : form.status ?? 'idle'}
+							status={isPending ? 'pending' : (form.status ?? 'idle')}
 						>
 							Delete Workflow
 						</StatusButton>

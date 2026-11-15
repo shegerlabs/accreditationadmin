@@ -1,6 +1,12 @@
 import { getFormProps, useForm } from '@conform-to/react'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
-import { Form, useActionData, useLoaderData, useNavigate, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useLoaderData,
+	useNavigate,
+	useParams,
+} from '@remix-run/react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
 import { Button } from '~/components/ui/button'
@@ -51,7 +57,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	let accessGrantCount = 0
 	let affectedUserCount = 0
 	let participantCount = 0
-	let workflowsWithParticipants: { id: string; name: string; participantCount: number }[] = []
+	let workflowsWithParticipants: {
+		id: string
+		name: string
+		participantCount: number
+	}[] = []
 
 	if (stepIds.length > 0) {
 		const accessGrants = await prisma.userEventAccess.findMany({
@@ -93,13 +103,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				.map(w => ({
 					id: w.id,
 					name: w.name,
-					participantCount: w.steps.reduce((sum, s) => sum + s._count.participants, 0),
+					participantCount: w.steps.reduce(
+						(sum, s) => sum + s._count.participants,
+						0,
+					),
 				}))
 				.filter(w => w.participantCount > 0)
 		}
 	}
 
-	return json({ event, workflowCount, accessGrantCount, affectedUserCount, participantCount, workflowsWithParticipants })
+	return json({
+		event,
+		workflowCount,
+		accessGrantCount,
+		affectedUserCount,
+		participantCount,
+		workflowsWithParticipants,
+	})
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -155,8 +175,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RemoveAllWorkflowsRoute() {
-	const { event, workflowCount, accessGrantCount, affectedUserCount, participantCount, workflowsWithParticipants } =
-		useLoaderData<typeof loader>()
+	const {
+		event,
+		workflowCount,
+		accessGrantCount,
+		affectedUserCount,
+		participantCount,
+		workflowsWithParticipants,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<{ result: any }>()
 	const { eventId } = useParams()
 	const navigate = useNavigate()
@@ -214,7 +240,9 @@ export default function RemoveAllWorkflowsRoute() {
 
 				{participantCount > 0 && (
 					<div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm">
-						<p className="font-medium text-destructive">Cannot Remove: Participants Registered</p>
+						<p className="font-medium text-destructive">
+							Cannot Remove: Participants Registered
+						</p>
 						<p className="mt-1 text-muted-foreground">
 							The following workflows have participants registered:
 						</p>
@@ -223,7 +251,8 @@ export default function RemoveAllWorkflowsRoute() {
 								<li key={w.id}>
 									<span className="font-medium text-foreground">{w.name}</span>
 									{' - '}
-									{w.participantCount} participant{w.participantCount !== 1 ? 's' : ''}
+									{w.participantCount} participant
+									{w.participantCount !== 1 ? 's' : ''}
 								</li>
 							))}
 						</ul>
@@ -235,12 +264,20 @@ export default function RemoveAllWorkflowsRoute() {
 
 				{accessGrantCount > 0 && participantCount === 0 && (
 					<div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm">
-						<p className="font-medium text-destructive">Warning: Access Grants Will Be Removed</p>
+						<p className="font-medium text-destructive">
+							Warning: Access Grants Will Be Removed
+						</p>
 						<p className="mt-1 text-muted-foreground">
 							Removing all workflows will also remove{' '}
-							<span className="font-medium text-foreground">{accessGrantCount}</span> access grant
+							<span className="font-medium text-foreground">
+								{accessGrantCount}
+							</span>{' '}
+							access grant
 							{accessGrantCount !== 1 ? 's' : ''} for{' '}
-							<span className="font-medium text-foreground">{affectedUserCount}</span> user
+							<span className="font-medium text-foreground">
+								{affectedUserCount}
+							</span>{' '}
+							user
 							{affectedUserCount !== 1 ? 's' : ''}.
 						</p>
 					</div>
@@ -262,7 +299,7 @@ export default function RemoveAllWorkflowsRoute() {
 							value="delete"
 							variant="destructive"
 							disabled={isPending || participantCount > 0}
-							status={isPending ? 'pending' : form.status ?? 'idle'}
+							status={isPending ? 'pending' : (form.status ?? 'idle')}
 						>
 							Remove {workflowCount} Workflow{workflowCount !== 1 ? 's' : ''}
 						</StatusButton>

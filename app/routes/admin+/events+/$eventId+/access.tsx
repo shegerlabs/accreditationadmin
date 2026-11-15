@@ -325,7 +325,10 @@ export default function EventAccessRoute() {
 							key: 'user',
 							header: 'User',
 							render: (access: any) => (
-								<Link to={`/admin/events/${eventId}/access/${access.ids[0]}/edit?ids=${access.ids.join(',')}&stepName=${encodeURIComponent(access.stepName || '')}`} className="flex items-center space-x-2">
+								<Link
+									to={`/admin/events/${eventId}/access/${access.ids[0]}/edit?ids=${access.ids.join(',')}&stepName=${encodeURIComponent(access.stepName || '')}`}
+									className="flex items-center space-x-2"
+								>
 									<UserIcon className="h-4 w-4 text-primary" />
 									<span>{access.user.username}</span>
 								</Link>
@@ -376,7 +379,6 @@ export default function EventAccessRoute() {
 						},
 					]}
 					status={data.status}
-					
 					keyExtractor={access => access.ids.join('-')}
 					totalPages={totalPages}
 					currentPage={currentPage}

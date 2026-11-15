@@ -1,6 +1,12 @@
 import { BadgeTemplate, ParticipantType } from '@prisma/client'
 import { LoaderFunctionArgs, json } from '@remix-run/node'
-import { Link, Outlet, useLoaderData, useLocation, useParams } from '@remix-run/react'
+import {
+	Link,
+	Outlet,
+	useLoaderData,
+	useLocation,
+	useParams,
+} from '@remix-run/react'
 import { EditIcon, TrashIcon, UserIcon } from 'lucide-react'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
@@ -21,25 +27,26 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	invariantResponse(event, 'Event not found', { status: 404 })
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.template,
-		searchFields: ['name'],
-		filterFields: ['templateType', 'participantTypeId'],
-		where: { eventId },
-		orderBy: [{ createdAt: 'desc' }],
-		select: {
-			id: true,
-			name: true,
-			description: true,
-			templateType: true,
-			participantType: {
-				select: {
-					name: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.template,
+			searchFields: ['name'],
+			filterFields: ['templateType', 'participantTypeId'],
+			where: { eventId },
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				name: true,
+				description: true,
+				templateType: true,
+				participantType: {
+					select: {
+						name: true,
+					},
 				},
 			},
-		},
-	})
+		})
 
 	const participantTypes = await getEventParticipantTypes(event.id)
 
@@ -73,7 +80,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function TemplatesRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage, defaultPageSize, pageSizeOptions, participantTypes, badgeTemplates } = data
+	const {
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		participantTypes,
+		badgeTemplates,
+	} = data
 	const { eventId } = useParams()
 	const location = useLocation()
 
@@ -121,9 +135,19 @@ export default function TemplatesRoute() {
 									label: 'More',
 									items: [
 										...(hasDefaultBadgeTemplate
-											? [{ label: 'Bulk Create', to: 'bulk-create', icon: 'layers' as const }]
+											? [
+													{
+														label: 'Bulk Create',
+														to: 'bulk-create',
+														icon: 'layers' as const,
+													},
+												]
 											: []),
-										{ label: 'Remove All', to: 'remove-all', icon: 'cross-1' as const },
+										{
+											label: 'Remove All',
+											to: 'remove-all',
+											icon: 'cross-1' as const,
+										},
 									],
 								},
 							]}
@@ -136,7 +160,10 @@ export default function TemplatesRoute() {
 								key: 'name',
 								header: 'Template',
 								render: (template: any) => (
-									<Link to={`/admin/events/${eventId}/templates/${template.id}/edit`} className="flex items-center space-x-2">
+									<Link
+										to={`/admin/events/${eventId}/templates/${template.id}/edit`}
+										className="flex items-center space-x-2"
+									>
 										<UserIcon className="h-4 w-4 text-primary" />
 										<span>{template.name}</span>
 									</Link>
@@ -170,7 +197,6 @@ export default function TemplatesRoute() {
 							},
 						]}
 						status={data.status}
-						
 						keyExtractor={template => template.id}
 						totalPages={totalPages}
 						currentPage={currentPage}

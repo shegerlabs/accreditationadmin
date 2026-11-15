@@ -17,26 +17,27 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { restrictionId } = params
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.constraint,
-		searchFields: ['name'],
-		where: {
-			restrictionId,
-		},
-		orderBy: [{ createdAt: 'desc' }],
-		select: {
-			id: true,
-			name: true,
-			accessLevel: true,
-			quota: true,
-			participantType: {
-				select: {
-					name: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.constraint,
+			searchFields: ['name'],
+			where: {
+				restrictionId,
+			},
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				name: true,
+				accessLevel: true,
+				quota: true,
+				participantType: {
+					select: {
+						name: true,
+					},
 				},
 			},
-		},
-	})
+		})
 
 	return json({
 		status: 'idle',
@@ -115,7 +116,6 @@ export default function ConstraintsRoute() {
 						},
 					]}
 					status={data.status}
-					
 					keyExtractor={constraint => constraint.id}
 					totalPages={totalPages}
 					currentPage={currentPage}

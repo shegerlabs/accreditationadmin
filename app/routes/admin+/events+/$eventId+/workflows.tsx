@@ -1,5 +1,11 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
-import { Link, Outlet, useLoaderData, useLocation, useParams } from '@remix-run/react'
+import {
+	Link,
+	Outlet,
+	useLoaderData,
+	useLocation,
+	useParams,
+} from '@remix-run/react'
 import { EditIcon, List, TrashIcon, UserIcon } from 'lucide-react'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
@@ -12,33 +18,34 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { eventId } = params
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.workflow,
-		searchFields: ['name', { participantType: 'name' }],
-		filterFields: ['participantTypeId'],
-		where: { eventId },
-		orderBy: [{ createdAt: 'desc' }],
-		select: {
-			id: true,
-			name: true,
-			participantType: {
-				select: {
-					name: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.workflow,
+			searchFields: ['name', { participantType: 'name' }],
+			filterFields: ['participantTypeId'],
+			where: { eventId },
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				name: true,
+				participantType: {
+					select: {
+						name: true,
+					},
+				},
+				tenant: {
+					select: {
+						name: true,
+					},
+				},
+				event: {
+					select: {
+						name: true,
+					},
 				},
 			},
-			tenant: {
-				select: {
-					name: true,
-				},
-			},
-			event: {
-				select: {
-					name: true,
-				},
-			},
-		},
-	})
+		})
 
 	const participantTypes = await getWorkflowParticipantTypes(eventId!)
 
@@ -55,7 +62,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function WorkflowsRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage, defaultPageSize, pageSizeOptions, participantTypes } = data
+	const {
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		participantTypes,
+	} = data
 	const { eventId } = useParams()
 	const location = useLocation()
 
@@ -115,7 +128,10 @@ export default function WorkflowsRoute() {
 							key: 'name',
 							header: 'Workflow',
 							render: (workflow: any) => (
-								<Link to={`/admin/events/${eventId}/workflows/${workflow.id}/steps/visual`} className="flex items-center space-x-2">
+								<Link
+									to={`/admin/events/${eventId}/workflows/${workflow.id}/steps/visual`}
+									className="flex items-center space-x-2"
+								>
 									<UserIcon className="h-4 w-4 text-primary" />
 									<span>{workflow.name}</span>
 								</Link>
@@ -153,7 +169,6 @@ export default function WorkflowsRoute() {
 						},
 					]}
 					status={data.status}
-					
 					keyExtractor={workflow => workflow.id}
 					totalPages={totalPages}
 					currentPage={currentPage}

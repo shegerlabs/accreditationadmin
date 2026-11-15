@@ -25,32 +25,33 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		status: 404,
 	})
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.invitationConstraint,
-		searchFields: [],
-		where: {
-			invitationId,
-		},
-		orderBy: [{ createdAt: 'desc' }],
-		select: {
-			id: true,
-			participantTypeId: true,
-			accessLevel: true,
-			quota: true,
-			sourceRestrictionId: true,
-			participantType: {
-				select: {
-					name: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.invitationConstraint,
+			searchFields: [],
+			where: {
+				invitationId,
+			},
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				participantTypeId: true,
+				accessLevel: true,
+				quota: true,
+				sourceRestrictionId: true,
+				participantType: {
+					select: {
+						name: true,
+					},
+				},
+				sourceRestriction: {
+					select: {
+						name: true,
+					},
 				},
 			},
-			sourceRestriction: {
-				select: {
-					name: true,
-				},
-			},
-		},
-	})
+		})
 
 	const participantTypes = await getEventParticipantTypes(eventId!, {
 		includeAny: true,
@@ -73,7 +74,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function InvitationConstraintsRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage, defaultPageSize, pageSizeOptions, invitation, participantTypes, accessLevels } = data
+	const {
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		invitation,
+		participantTypes,
+		accessLevels,
+	} = data
 	const { eventId, invitationId } = useParams()
 	const location = useLocation()
 
@@ -158,7 +167,6 @@ export default function InvitationConstraintsRoute() {
 							},
 						]}
 						status={data.status}
-						
 						keyExtractor={constraint => constraint.id}
 						totalPages={totalPages}
 						currentPage={currentPage}

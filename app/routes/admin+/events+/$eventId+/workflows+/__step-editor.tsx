@@ -15,7 +15,15 @@ import { Label } from '~/components/ui/label'
 import { xssTransform } from '~/utils/validations'
 import { type action } from './__step-editor.server'
 
-const STEP_ACTIONS = ['APPROVE', 'REJECT', 'NOTIFY', 'PRINT', 'ARCHIVE', 'CANCEL', 'BYPASS'] as const
+const STEP_ACTIONS = [
+	'APPROVE',
+	'REJECT',
+	'NOTIFY',
+	'PRINT',
+	'ARCHIVE',
+	'CANCEL',
+	'BYPASS',
+] as const
 
 export const StepEditorSchema = z.object({
 	id: z.string().optional(),
@@ -26,15 +34,30 @@ export const StepEditorSchema = z.object({
 	workflowId: z.string({ required_error: 'Workflow is required' }),
 	roleId: z.string({ required_error: 'Role is required' }),
 	action: z.enum(STEP_ACTIONS),
-	order: z.coerce.number().int().min(0, 'Order must be 0 or greater').default(0),
+	order: z.coerce
+		.number()
+		.int()
+		.min(0, 'Order must be 0 or greater')
+		.default(0),
 	nextStepId: z.string().optional().nullable(),
-	isRejectionTarget: z.string().optional().transform(val => val === 'on'),
-	isBypassTarget: z.string().optional().transform(val => val === 'on'),
-	requiresAssignment: z.string().optional().transform(val => val === 'on'),
+	isRejectionTarget: z
+		.string()
+		.optional()
+		.transform(val => val === 'on'),
+	isBypassTarget: z
+		.string()
+		.optional()
+		.transform(val => val === 'on'),
+	requiresAssignment: z
+		.string()
+		.optional()
+		.transform(val => val === 'on'),
 	slaDurationMinutes: z
 		.string()
 		.optional()
-		.transform(val => (val === '' || val === undefined ? null : parseInt(val, 10)))
+		.transform(val =>
+			val === '' || val === undefined ? null : parseInt(val, 10),
+		)
 		.pipe(z.number().int().min(0).nullable()),
 })
 
@@ -50,7 +73,21 @@ export function StepEditor({
 	steps = [],
 }: {
 	step?: SerializeFrom<
-		Pick<Step, 'id' | 'name' | 'tenantId' | 'workflowId' | 'roleId' | 'action' | 'order' | 'nextStepId' | 'isRejectionTarget' | 'isBypassTarget' | 'requiresAssignment' | 'slaDurationMinutes'>
+		Pick<
+			Step,
+			| 'id'
+			| 'name'
+			| 'tenantId'
+			| 'workflowId'
+			| 'roleId'
+			| 'action'
+			| 'order'
+			| 'nextStepId'
+			| 'isRejectionTarget'
+			| 'isBypassTarget'
+			| 'requiresAssignment'
+			| 'slaDurationMinutes'
+		>
 	>
 	workflow: SerializeFrom<Pick<Workflow, 'id' | 'tenantId' | 'eventId'>>
 	title: string
@@ -175,7 +212,9 @@ export function StepEditor({
 			</Field>
 
 			<Field>
-				<Label htmlFor={fields.slaDurationMinutes.id}>SLA Duration (minutes)</Label>
+				<Label htmlFor={fields.slaDurationMinutes.id}>
+					SLA Duration (minutes)
+				</Label>
 				<InputField
 					meta={fields.slaDurationMinutes}
 					type="number"
@@ -233,7 +272,9 @@ export function StepEditor({
 
 			<div className="flex items-center justify-between gap-4 rounded-lg border p-3">
 				<div className="space-y-0.5">
-					<Label htmlFor={fields.requiresAssignment.id}>Requires Assignment</Label>
+					<Label htmlFor={fields.requiresAssignment.id}>
+						Requires Assignment
+					</Label>
 					<p className="text-sm text-muted-foreground">
 						Users must be assigned to handle this step
 					</p>

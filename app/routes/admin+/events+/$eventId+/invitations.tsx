@@ -50,20 +50,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { eventId } = params
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.invitation,
-		searchFields: ['email', 'organization'],
-		filterFields: [],
-		where: { eventId },
-		orderBy: [{ createdAt: 'desc' }],
-		select: {
-			id: true,
-			email: true,
-			organization: true,
-			maximumQuota: true,
-		},
-	})
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.invitation,
+			searchFields: ['email', 'organization'],
+			filterFields: [],
+			where: { eventId },
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				email: true,
+				organization: true,
+				maximumQuota: true,
+			},
+		})
 
 	const tenants = await prisma.tenant.findMany({
 		select: {
@@ -240,7 +241,15 @@ function SecretDisplay({ secret }: { secret: string }) {
 export default function InvitationsRoute() {
 	const data = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>() as ActionData
-	const { totalPages, currentPage, defaultPageSize, pageSizeOptions, restrictions, participantTypes, accessLevels } = data
+	const {
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		restrictions,
+		participantTypes,
+		accessLevels,
+	} = data
 	const { eventId } = useParams()
 	const location = useLocation()
 
@@ -301,7 +310,11 @@ export default function InvitationsRoute() {
 								label: 'More',
 								items: [
 									{ label: 'Apply Restriction', to: 'apply', icon: 'package' },
-									{ label: 'Remove Restriction', to: 'remove', icon: 'cross-1' },
+									{
+										label: 'Remove Restriction',
+										to: 'remove',
+										icon: 'cross-1',
+									},
 									{ label: 'Secrets', to: 'secrets', icon: 'lock-closed' },
 								],
 							},
@@ -366,7 +379,6 @@ export default function InvitationsRoute() {
 						},
 					]}
 					status={data.status}
-					
 					keyExtractor={invitation => invitation.id}
 					totalPages={totalPages}
 					currentPage={currentPage}

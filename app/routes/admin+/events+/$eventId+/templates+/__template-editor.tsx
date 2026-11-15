@@ -188,7 +188,8 @@ export function TemplateEditor({
 			eventId: event.id,
 			tenantId: event.tenantId,
 			templateType: template?.templateType ?? 'BADGE',
-			badgeTemplateId: template?.badgeTemplateId ?? defaultBadgeTemplate?.id ?? '_none',
+			badgeTemplateId:
+				template?.badgeTemplateId ?? defaultBadgeTemplate?.id ?? '_none',
 			attachments: (() => {
 				const required = ['Front', 'Back']
 				const existing = template?.attachments || []

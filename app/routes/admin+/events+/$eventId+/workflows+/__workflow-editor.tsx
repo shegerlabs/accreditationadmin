@@ -1,8 +1,18 @@
 import { getFormProps, getInputProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
-import { Event, ParticipantType, Workflow, WorkflowTemplate } from '@prisma/client'
+import {
+	Event,
+	ParticipantType,
+	Workflow,
+	WorkflowTemplate,
+} from '@prisma/client'
 import { SerializeFrom } from '@remix-run/node'
-import { Form, useActionData, useNavigate, useOutletContext } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useNavigate,
+	useOutletContext,
+} from '@remix-run/react'
 import { useState } from 'react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
@@ -60,7 +70,9 @@ export function WorkflowEditor({
 	>
 	title: string
 	intent?: 'add' | 'edit' | 'delete'
-	templates?: SerializeFrom<Pick<WorkflowTemplate, 'id' | 'name' | 'description'>>[]
+	templates?: SerializeFrom<
+		Pick<WorkflowTemplate, 'id' | 'name' | 'description'>
+	>[]
 }) {
 	const { participantTypes } = useOutletContext<{
 		participantTypes: Pick<ParticipantType, 'id' | 'name'>[]
@@ -72,18 +84,27 @@ export function WorkflowEditor({
 	const isDelete = intent === 'delete'
 
 	// State for auto-suggest name
-	const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(undefined)
-	const [selectedParticipantTypeId, setSelectedParticipantTypeId] = useState<string | undefined>(
-		workflow?.participantTypeId
+	const [selectedTemplateId, setSelectedTemplateId] = useState<
+		string | undefined
+	>(undefined)
+	const [selectedParticipantTypeId, setSelectedParticipantTypeId] = useState<
+		string | undefined
+	>(workflow?.participantTypeId)
+	const [suggestedName, setSuggestedName] = useState<string>(
+		workflow?.name || '',
 	)
-	const [suggestedName, setSuggestedName] = useState<string>(workflow?.name || '')
 
 	// Auto-suggest name when template and participant type are selected
-	const updateSuggestedName = (templateId?: string, participantTypeId?: string) => {
+	const updateSuggestedName = (
+		templateId?: string,
+		participantTypeId?: string,
+	) => {
 		if (intent !== 'add') return
 
 		const template = templates?.find(t => t.id === templateId)
-		const participantType = participantTypes.find(pt => pt.id === participantTypeId)
+		const participantType = participantTypes.find(
+			pt => pt.id === participantTypeId,
+		)
 
 		if (template && participantType) {
 			setSuggestedName(`${participantType.name} - ${template.name}`)
@@ -154,7 +175,8 @@ export function WorkflowEditor({
 										name={fields.templateId.name}
 										value={selectedTemplateId}
 										onValueChange={value => {
-											const templateId = value === '__none__' ? undefined : value
+											const templateId =
+												value === '__none__' ? undefined : value
 											setSelectedTemplateId(templateId)
 											updateSuggestedName(templateId, selectedParticipantTypeId)
 										}}
@@ -163,7 +185,9 @@ export function WorkflowEditor({
 											<SelectValue placeholder="Select a template" />
 										</SelectTrigger>
 										<SelectContent>
-											<SelectItem value="__none__">Start from scratch</SelectItem>
+											<SelectItem value="__none__">
+												Start from scratch
+											</SelectItem>
 											{templates.map(template => (
 												<SelectItem key={template.id} value={template.id}>
 													{template.name}

@@ -8,7 +8,11 @@ import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
-import { AccessEditorSchema, AccessDeleteSchema, AccessEditSchema } from './__access-editor'
+import {
+	AccessEditorSchema,
+	AccessDeleteSchema,
+	AccessEditSchema,
+} from './__access-editor'
 
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await requireAdminAccess(request)
@@ -51,7 +55,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		invariantResponse(accessId, 'Access ID is required')
 
 		// Parse all IDs from comma-separated string
-		const allIds = allIdsString ? allIdsString.split(',').filter(Boolean) : [accessId]
+		const allIds = allIdsString
+			? allIdsString.split(',').filter(Boolean)
+			: [accessId]
 
 		// Verify the first access record exists and belongs to this event (for audit info)
 		const accessRecord = await prisma.userEventAccess.findFirst({
@@ -101,11 +107,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return json({ result: submission.reply() }, { status: 400 })
 		}
 
-		const { id: accessId, allIds: allIdsString, userId, roleId, participantTypeSelection, participantTypeIds, stepName } =
-			submission.value
+		const {
+			id: accessId,
+			allIds: allIdsString,
+			userId,
+			roleId,
+			participantTypeSelection,
+			participantTypeIds,
+			stepName,
+		} = submission.value
 
 		// Parse all IDs from comma-separated string
-		const allIds = allIdsString ? allIdsString.split(',').filter(Boolean) : [accessId]
+		const allIds = allIdsString
+			? allIdsString.split(',').filter(Boolean)
+			: [accessId]
 
 		// Verify the user exists
 		const targetUser = await prisma.user.findFirst({
@@ -116,7 +131,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			select: { id: true, username: true },
 		})
 
-		invariantResponse(targetUser, 'User not found or access denied', { status: 403 })
+		invariantResponse(targetUser, 'User not found or access denied', {
+			status: 403,
+		})
 
 		// Verify the role exists
 		const role = await prisma.role.findUnique({
@@ -252,8 +269,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return json({ result: submission.reply() }, { status: 400 })
 	}
 
-	const { userId, roleId, participantTypeSelection, participantTypeIds, stepName } =
-		submission.value
+	const {
+		userId,
+		roleId,
+		participantTypeSelection,
+		participantTypeIds,
+		stepName,
+	} = submission.value
 
 	// Verify the user exists and belongs to the same tenant (if not global admin)
 	const targetUser = await prisma.user.findFirst({
@@ -264,7 +286,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		select: { id: true, username: true },
 	})
 
-	invariantResponse(targetUser, 'User not found or access denied', { status: 403 })
+	invariantResponse(targetUser, 'User not found or access denied', {
+		status: 403,
+	})
 
 	// Verify the role exists
 	const role = await prisma.role.findUnique({
