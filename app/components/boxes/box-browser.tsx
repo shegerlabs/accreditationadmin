@@ -1,4 +1,4 @@
-import { Link } from '@remix-run/react'
+import { Link, useLocation, useSearchParams } from '@remix-run/react'
 import { Lock } from 'lucide-react'
 import * as React from 'react'
 import {
@@ -11,8 +11,11 @@ import {
 	type PartSummary,
 	type SelectedBox,
 	type Stage,
+	STAGE_META,
+	STAGES,
 } from '~/utils/boxes'
 import { DataList, type DataListColumn } from '~/components/data-list'
+import { SearchBar } from '~/components/search-bar'
 import { cn } from '~/utils/misc'
 import { Initials, personName, StageBar, StageLegend, StagePill } from './stage'
 
@@ -508,11 +511,10 @@ function MemberTable({
 		[box.readyPeople],
 	)
 	const [ticked, setTicked] = React.useState<Set<string>>(() => new Set())
-	// Drop anyone who stopped being ready since they were ticked.
-	const selected = new Set([...ticked].filter(id => readyIds.has(id)))
-	const clear = () => setTicked(new Set())
+	const [searchParams] = useSearchParams()
+	const { pathname } = useLocation()
 
-	if (members.length === 0)
+	if (all.length === 0 || members.length === 0)
 		return (
 			<p className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
 				{viewer === 'printer'
@@ -520,6 +522,25 @@ function MemberTable({
 					: 'Nobody here yet.'}
 			</p>
 		)
+
+	// The whole box is already loaded, so the search bar filters it here.
+	const query = (searchParams.get('search') ?? '').trim().toLowerCase()
+	const stage = searchParams.get('stage')
+	const shown = members.filter(
+		m =>
+			(!query ||
+				[personName(m), m.code, m.typeName, m.invitationName].some(v =>
+					v?.toLowerCase().includes(query),
+				)) &&
+			(!stage || m.stage === stage),
+	)
+	// Drop anyone who stopped being ready, or is filtered out, since ticked.
+	const shownIds = new Set(shown.map(m => m.id))
+	const selected = new Set(
+		[...ticked].filter(id => readyIds.has(id) && shownIds.has(id)),
+	)
+	const clear = () => setTicked(new Set())
+	const present = new Set(members.map(m => m.stage))
 
 	const columns = [
 		{
@@ -559,29 +580,52 @@ function MemberTable({
 	]
 
 	return (
-		<DataList
-			data={members}
-			// DataList types rows loosely; these are always MemberRows.
-			columns={columns as DataListColumn[]}
-			actions={
-				actions
-					? [
-							{
-								label: 'Actions',
-								icon: null,
-								render: m => actions(box, m as MemberRow),
-							},
-						]
-					: undefined
-			}
-			status="idle"
-			keyExtractor={m => m.id}
-			selectable={selectable}
-			isSelectable={m => readyIds.has(m.id)}
-			selectedIds={selected}
-			onSelectionChange={setTicked}
-			renderBulkActions={ids => selectionAction?.(box, [...ids], clear)}
-		/>
+		<div className="space-y-3">
+			<SearchBar
+				status="idle"
+				action={pathname}
+				autoSubmit
+				showAddButton={false}
+				filterDisplay="inline"
+				filters={[
+					{
+						name: 'stage',
+						label: 'Status',
+						type: 'select',
+						options: [
+							{ value: 'all', label: 'All' },
+							...STAGES.filter(st => present.has(st)).map(st => ({
+								value: st,
+								label: STAGE_META[st].label,
+							})),
+						],
+					},
+				]}
+			/>
+			<DataList
+				data={shown}
+				// DataList types rows loosely; these are always MemberRows.
+				columns={columns as DataListColumn[]}
+				actions={
+					actions
+						? [
+								{
+									label: 'Actions',
+									icon: null,
+									render: m => actions(box, m as MemberRow),
+								},
+							]
+						: undefined
+				}
+				status="idle"
+				keyExtractor={m => m.id}
+				selectable={selectable}
+				isSelectable={m => readyIds.has(m.id)}
+				selectedIds={selected}
+				onSelectionChange={setTicked}
+				renderBulkActions={ids => selectionAction?.(box, [...ids], clear)}
+			/>
+		</div>
 	)
 }
 
