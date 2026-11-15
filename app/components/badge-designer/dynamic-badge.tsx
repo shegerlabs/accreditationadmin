@@ -79,7 +79,11 @@ function getParticipantValue(
 		case 'eventName':
 			return participant.eventName ?? ''
 		case 'closedSession':
-			return participant.closedSession ? 'C' : participant.executiveCouncilClosedSession ? 'CX' : ''
+			return participant.closedSession
+				? 'C'
+				: participant.executiveCouncilClosedSession
+					? 'CX'
+					: ''
 		default:
 			return ''
 	}
@@ -132,7 +136,11 @@ function ElementRenderer({
 				<View
 					style={{
 						...baseStyle,
-						borderRadius: getPdfBorderRadius(element.borderRadius, element.width, element.height),
+						borderRadius: getPdfBorderRadius(
+							element.borderRadius,
+							element.width,
+							element.height,
+						),
 						borderWidth: element.borderWidth ?? 0,
 						borderColor: element.borderColor ?? '#000000',
 						borderStyle: element.borderWidth ? 'solid' : undefined,
@@ -155,7 +163,11 @@ function ElementRenderer({
 				<View
 					style={{
 						...baseStyle,
-						borderRadius: getPdfBorderRadius(element.borderRadius, element.width, element.height),
+						borderRadius: getPdfBorderRadius(
+							element.borderRadius,
+							element.width,
+							element.height,
+						),
 						borderWidth: element.borderWidth ?? 0,
 						borderColor: element.borderColor ?? '#000000',
 						borderStyle: element.borderWidth ? 'solid' : undefined,
@@ -178,7 +190,10 @@ function ElementRenderer({
 				<Text
 					style={{
 						...baseStyle,
-						fontFamily: getFontFamily(textEl.style?.fontWeight, textEl.style?.fontStyle),
+						fontFamily: getFontFamily(
+							textEl.style?.fontWeight,
+							textEl.style?.fontStyle,
+						),
 						fontSize: textEl.style?.fontSize ?? 10,
 						color: textEl.style?.color ?? '#000000',
 						textAlign: textEl.style?.textAlign ?? 'left',
@@ -199,7 +214,10 @@ function ElementRenderer({
 				<Text
 					style={{
 						...baseStyle,
-						fontFamily: getFontFamily(dynEl.style?.fontWeight, dynEl.style?.fontStyle),
+						fontFamily: getFontFamily(
+							dynEl.style?.fontWeight,
+							dynEl.style?.fontStyle,
+						),
 						fontSize: dynEl.style?.fontSize ?? 10,
 						color: dynEl.style?.color ?? '#000000',
 						textAlign: dynEl.style?.textAlign ?? 'left',
@@ -234,8 +252,9 @@ function ElementRenderer({
 	}
 }
 
-// Main badge document component
-function BadgeDocument({
+// A participant's two badge pages (front, back). Exported so a batch of badges
+// can be printed as one document.
+export function DynamicBadgePages({
 	template,
 	participant,
 	qrCodeDataURL,
@@ -281,7 +300,7 @@ function BadgeDocument({
 	})
 
 	return (
-		<Document title={`Badge - ${participant.fullName}`}>
+		<>
 			{/* Front Page */}
 			<Page size={[template.width, template.height]} style={styles.page}>
 				{frontBackgroundUrl && (
@@ -296,7 +315,7 @@ function BadgeDocument({
 					/>
 				))}
 				{template.borderWidth > 0 && <View style={styles.borderOverlay} />}
-				</Page>
+			</Page>
 
 			{/* Back Page */}
 			<Page size={[template.width, template.height]} style={styles.page}>
@@ -313,8 +332,22 @@ function BadgeDocument({
 				))}
 				{template.borderWidth > 0 && <View style={styles.borderOverlay} />}
 			</Page>
-		</Document>
+		</>
 	)
+}
+
+/** What the template's QR code encodes for this participant. */
+export function dynamicBadgeQrData(
+	elements: BadgeTemplateConfig['elements'],
+	participant: ParticipantBadgeData,
+) {
+	const qrElement = elements.find(el => el.type === 'QR_CODE') as
+		| (BadgeElement & { type: 'QR_CODE' })
+		| undefined
+	if (qrElement?.dataField === 'badgeId') return participant.badgeId
+	if (qrElement?.dataField === 'email')
+		return participant.email ?? participant.profileUrl
+	return participant.profileUrl
 }
 
 // Exported component with PDF viewer
@@ -331,19 +364,10 @@ export function DynamicBadge({
 	useEffect(() => {
 		setIsClient(true)
 
-		// Generate QR code based on template elements
-		const qrElement = template.elements.find(el => el.type === 'QR_CODE') as
-			| (BadgeElement & { type: 'QR_CODE' })
-			| undefined
-
-		let qrData = participant.profileUrl
-		if (qrElement?.dataField === 'badgeId') {
-			qrData = participant.badgeId
-		} else if (qrElement?.dataField === 'email') {
-			qrData = participant.email ?? participant.profileUrl
-		}
-
-		QRCode.toDataURL(qrData, { width: 128, margin: 0 })
+		QRCode.toDataURL(dynamicBadgeQrData(template.elements, participant), {
+			width: 128,
+			margin: 0,
+		})
 			.then(setQrCodeDataURL)
 			.catch(console.error)
 	}, [template.elements, participant])
@@ -355,30 +379,30 @@ export function DynamicBadge({
 	return (
 		<div className="flex h-full flex-col gap-4">
 			<PDFViewer width="100%" height={height}>
-				<BadgeDocument
-					template={template}
-					participant={participant}
-					qrCodeDataURL={qrCodeDataURL}
-					frontBackgroundUrl={frontBackgroundUrl}
-					backBackgroundUrl={backBackgroundUrl}
-				/>
+				<Document title={`Badge - ${participant.fullName}`}>
+					<DynamicBadgePages
+						template={template}
+						participant={participant}
+						qrCodeDataURL={qrCodeDataURL}
+						frontBackgroundUrl={frontBackgroundUrl}
+						backBackgroundUrl={backBackgroundUrl}
+					/>
+				</Document>
 			</PDFViewer>
 		</div>
 	)
 }
 
 // Helper function to convert DB template to BadgeTemplateConfig
-export function dbTemplateToConfig(
-	dbTemplate: {
-		width: number
-		height: number
-		borderWidth?: number
-		borderColor?: string
-		borderRadius?: number
-		badgeIdPrefix: string
-		elements: unknown
-	},
-): BadgeTemplateConfig {
+export function dbTemplateToConfig(dbTemplate: {
+	width: number
+	height: number
+	borderWidth?: number
+	borderColor?: string
+	borderRadius?: number
+	badgeIdPrefix: string
+	elements: unknown
+}): BadgeTemplateConfig {
 	return {
 		width: dbTemplate.width,
 		height: dbTemplate.height,

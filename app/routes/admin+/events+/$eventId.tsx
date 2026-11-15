@@ -3,6 +3,7 @@ import { Link, Outlet, useLoaderData, useLocation } from '@remix-run/react'
 import {
 	ArrowLeft,
 	CalendarDays,
+	Boxes,
 	CheckCircle,
 	CircleDot,
 	Edit,
@@ -78,6 +79,7 @@ export default function EventDetailsRoute() {
 		{ name: 'Workflows', path: 'workflows', icon: Workflow },
 		{ name: 'Invitations', path: 'invitations', icon: Mail },
 		{ name: 'Templates', path: 'templates', icon: FileImage },
+		{ name: 'Boxes', path: 'boxes', icon: Boxes },
 		{ name: 'Emails', path: 'emails', icon: MailCheck },
 		{ name: 'Access', path: 'access', icon: Users },
 	]

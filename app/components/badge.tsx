@@ -141,36 +141,13 @@ export const Badge: React.FC<BadgeProps> = ({
 
 	const badgeDocument = (
 		<Document title={`${badgeInfo.name}`}>
-			<Page size={[153, 243]} style={styles.page}>
-				<Image src={frontBackgroundUrl} style={styles.background} />
-				<View style={styles.section}>
-					<Text style={styles.sessionIndicator}>
-						{badgeInfo.closedSession ? 'C' : badgeInfo.executiveCouncilClosedSession ? 'CX' : ''}
-					</Text>
-					<View style={styles.row}>
-						{qrCodeDataURL && (
-							<Image src={qrCodeDataURL} style={styles.qrCode} />
-						)}
-						<Image src={photoUrl} style={styles.photo} />
-					</View>
-					<View style={styles.nameContainer}>
-						<Text style={styles.name}>Name: {badgeInfo.name}</Text>
-						{/* <Text style={styles.organization}>
-							Org: {badgeInfo.organization}
-						</Text> */}
-					</View>
-				</View>
-				{/* <View style={styles.bottomSection}>
-					<Text style={styles.africanUnionText}>African Union</Text>
-				</View> */}
-				</Page>
-			{/* Back of the badge */}
-			<Page size={[153, 243]} style={styles.page}>
-				<Image src={backBackgroundUrl} style={styles.background} />
-				<View style={styles.section}>
-					{/* Add any additional information for the back of the badge here */}
-				</View>
-			</Page>
+			<LegacyBadgePages
+				badgeInfo={badgeInfo}
+				photoUrl={photoUrl}
+				frontBackgroundUrl={frontBackgroundUrl}
+				backBackgroundUrl={backBackgroundUrl}
+				qrCodeDataURL={qrCodeDataURL}
+			/>
 		</Document>
 	)
 
@@ -187,5 +164,56 @@ export const Badge: React.FC<BadgeProps> = ({
 				{badgeDocument}
 			</PDFViewer>
 		</div>
+	)
+}
+
+/**
+ * A participant's two pages of the legacy (undesigned) badge. Exported so a
+ * batch of badges can be printed as one document.
+ */
+export function LegacyBadgePages({
+	badgeInfo,
+	photoUrl,
+	frontBackgroundUrl,
+	backBackgroundUrl,
+	qrCodeDataURL,
+}: Omit<BadgeProps, 'height'> & { qrCodeDataURL: string }) {
+	return (
+		<>
+			<Page size={[153, 243]} style={styles.page}>
+				<Image src={frontBackgroundUrl} style={styles.background} />
+				<View style={styles.section}>
+					<Text style={styles.sessionIndicator}>
+						{badgeInfo.closedSession
+							? 'C'
+							: badgeInfo.executiveCouncilClosedSession
+								? 'CX'
+								: ''}
+					</Text>
+					<View style={styles.row}>
+						{qrCodeDataURL && (
+							<Image src={qrCodeDataURL} style={styles.qrCode} />
+						)}
+						<Image src={photoUrl} style={styles.photo} />
+					</View>
+					<View style={styles.nameContainer}>
+						<Text style={styles.name}>Name: {badgeInfo.name}</Text>
+						{/* <Text style={styles.organization}>
+						Org: {badgeInfo.organization}
+					</Text> */}
+					</View>
+				</View>
+				{/* <View style={styles.bottomSection}>
+				<Text style={styles.africanUnionText}>African Union</Text>
+			</View> */}
+			</Page>
+			{/* Back of the badge */}
+			<Page size={[153, 243]} style={styles.page}>
+				<Image src={backBackgroundUrl} style={styles.background} />
+				<View style={styles.section}>
+					{/* Add any additional information for the back of the badge here */}
+				</View>
+			</Page>
+		</>
 	)
 }

@@ -516,6 +516,9 @@ async function getTablesInDependencyOrder(pool: Pool): Promise<string[]> {
 		'Approval',  // depends on Participant, Step, User
 		'BadgePrint',  // depends on Participant, User
 		'Reprint',  // depends on Participant, User
+		'Box',  // depends on Event, User
+		'BoxMember',  // depends on Box, Participant
+		'BoxPlacement',  // depends on Box, Participant, User
 
 		// 8. System tables
 		'SystemSetting',  // depends on Tenant

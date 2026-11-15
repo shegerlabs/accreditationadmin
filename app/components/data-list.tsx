@@ -19,7 +19,7 @@ import { Paginator } from './paginator'
 
 type DataItem = Record<string, any>
 
-type Column = {
+export type DataListColumn = {
 	key: string
 	header: React.ReactNode
 	render?: (item: DataItem) => React.ReactNode
@@ -43,7 +43,7 @@ type Action = {
 
 type DataListProps = {
 	data: DataItem[]
-	columns: Column[]
+	columns: DataListColumn[]
 	actions?: Action[]
 	status: 'idle' | 'error' | 'loading'
 	keyExtractor: (item: DataItem) => string
@@ -53,6 +53,10 @@ type DataListProps = {
 	selectable?: boolean
 	selectedIds?: Set<string>
 	onSelectionChange?: (selectedIds: Set<string>) => void
+	/** Rows that can't be ticked get no checkbox. Every row can by default. */
+	isSelectable?: (item: DataItem) => boolean
+	/** Custom controls for the selection bar, instead of `bulkActions`. */
+	renderBulkActions?: (selectedIds: Set<string>) => React.ReactNode
 	bulkActions?: {
 		label: string
 		icon: React.ReactNode
@@ -81,20 +85,45 @@ export function DataList({
 	selectable,
 	selectedIds = new Set(),
 	onSelectionChange,
+	isSelectable,
+	renderBulkActions,
 	bulkActions,
 	defaultPageSize,
 	pageSizeOptions,
 }: DataListProps) {
 	const showPaginator = totalPages !== undefined && currentPage !== undefined
 
+	const canSelect = React.useCallback(
+		(item: DataItem) => !isSelectable || isSelectable(item),
+		[isSelectable],
+	)
+	const selectableIds = React.useMemo(
+		() => data.filter(canSelect).map(item => keyExtractor(item)),
+		[data, canSelect, keyExtractor],
+	)
+	const allSelected =
+		selectableIds.length > 0 && selectableIds.every(id => selectedIds.has(id))
+
 	const handleSelectAll = React.useCallback(() => {
 		if (!onSelectionChange) return
-		if (selectedIds.size === data.length) {
-			onSelectionChange(new Set())
-		} else {
-			onSelectionChange(new Set(data.map(item => keyExtractor(item))))
-		}
-	}, [data, selectedIds, onSelectionChange, keyExtractor])
+		onSelectionChange(allSelected ? new Set() : new Set(selectableIds))
+	}, [allSelected, selectableIds, onSelectionChange])
+
+	const bulkBar =
+		selectable && selectedIds.size > 0 && (bulkActions || renderBulkActions)
+	const bulkControls = renderBulkActions
+		? renderBulkActions(selectedIds)
+		: bulkActions?.map((action, index) => (
+				<Button
+					key={index}
+					size="sm"
+					variant={action.variant || 'outline'}
+					onClick={() => action.onClick(selectedIds)}
+				>
+					{action.icon}
+					<span className="ml-2">{action.label}</span>
+				</Button>
+			))
 
 	const handleSelectItem = React.useCallback(
 		(id: string) => {
@@ -139,24 +168,12 @@ export function DataList({
 		<>
 			{/* Mobile/tablet card view */}
 			<div className="space-y-4 lg:hidden">
-				{selectable && selectedIds.size > 0 && bulkActions && (
+				{bulkBar && (
 					<div className="mb-4 flex items-center justify-between rounded-md bg-muted p-2">
 						<span className="text-sm font-medium">
 							{selectedIds.size} item(s) selected
 						</span>
-						<div className="flex flex-wrap gap-2">
-							{bulkActions.map((action, index) => (
-								<Button
-									key={index}
-									size="sm"
-									variant={action.variant || 'outline'}
-									onClick={() => action.onClick(selectedIds)}
-								>
-									{action.icon}
-									<span className="ml-2">{action.label}</span>
-								</Button>
-							))}
-						</div>
+						<div className="flex flex-wrap gap-2">{bulkControls}</div>
 					</div>
 				)}
 				{data.map(item => (
@@ -164,7 +181,7 @@ export function DataList({
 						<CardHeader className="bg-primary/10 p-2">
 							<div className="flex items-center justify-between">
 								<div className="flex items-center space-x-3">
-									{selectable && (
+									{selectable && canSelect(item) && (
 										<Checkbox
 											checked={selectedIds.has(keyExtractor(item))}
 											onCheckedChange={() =>
@@ -276,24 +293,12 @@ export function DataList({
 
 			{/* Desktop table view */}
 			<div className="hidden space-y-4 lg:block">
-				{selectable && selectedIds.size > 0 && bulkActions && (
+				{bulkBar && (
 					<div className="flex items-center justify-between rounded-md bg-muted p-2">
 						<span className="text-sm font-medium">
 							{selectedIds.size} item(s) selected
 						</span>
-						<div className="flex space-x-2">
-							{bulkActions.map((action, index) => (
-								<Button
-									key={index}
-									size="sm"
-									variant={action.variant || 'outline'}
-									onClick={() => action.onClick(selectedIds)}
-								>
-									{action.icon}
-									<span className="ml-2">{action.label}</span>
-								</Button>
-							))}
-						</div>
+						<div className="flex space-x-2">{bulkControls}</div>
 					</div>
 				)}
 				<div className="overflow-x-auto rounded-md border">
@@ -303,8 +308,14 @@ export function DataList({
 								{selectable && (
 									<TableHead className="w-[50px]">
 										<Checkbox
+											aria-label="Select all"
+											disabled={selectableIds.length === 0}
 											checked={
-												data.length > 0 && selectedIds.size === data.length
+												allSelected
+													? true
+													: selectedIds.size > 0
+														? 'indeterminate'
+														: false
 											}
 											onCheckedChange={handleSelectAll}
 										/>
@@ -313,7 +324,9 @@ export function DataList({
 								{columns.map(column => (
 									<TableHead key={column.key}>{column.header}</TableHead>
 								))}
-								{actions && <TableHead className="text-right">Actions</TableHead>}
+								{actions && (
+									<TableHead className="text-right">Actions</TableHead>
+								)}
 							</TableRow>
 						</TableHeader>
 						<TableBody>
@@ -321,12 +334,15 @@ export function DataList({
 								<TableRow key={keyExtractor(item)}>
 									{selectable && (
 										<TableCell>
-											<Checkbox
-												checked={selectedIds.has(keyExtractor(item))}
-												onCheckedChange={() =>
-													handleSelectItem(keyExtractor(item))
-												}
-											/>
+											{canSelect(item) && (
+												<Checkbox
+													aria-label="Select row"
+													checked={selectedIds.has(keyExtractor(item))}
+													onCheckedChange={() =>
+														handleSelectItem(keyExtractor(item))
+													}
+												/>
+											)}
 										</TableCell>
 									)}
 									{columns.map(column => (

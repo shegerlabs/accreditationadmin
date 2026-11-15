@@ -31,14 +31,18 @@ export const PURGED_TABLES = [
 	'template',
 	'userEventAccess',
 	'eventParticipantType',
+	'box',
 	// Transitive: Restriction -> Constraint, Invitation -> InvitationConstraint,
-	// Workflow -> Step, Template -> Attachment, Participant -> Approval/Document.
+	// Workflow -> Step, Template -> Attachment, Participant -> Approval/Document,
+	// Box -> BoxMember/BoxPlacement.
 	'constraint',
 	'invitationConstraint',
 	'step',
 	'attachment',
 	'approval',
 	'participantDocument',
+	'boxMember',
+	'boxPlacement',
 	// Deleted explicitly, not by cascade.
 	'session',
 	'verification',
