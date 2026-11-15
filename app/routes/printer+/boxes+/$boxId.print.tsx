@@ -12,7 +12,7 @@ import {
 	useNavigation,
 	useSearchParams,
 } from '@remix-run/react'
-import { Printer } from 'lucide-react'
+import { AlertTriangle, Printer } from 'lucide-react'
 import QRCode from 'qrcode'
 import * as React from 'react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
@@ -25,7 +25,9 @@ import {
 	dynamicBadgeQrData,
 	type ParticipantBadgeData,
 } from '~/components/badge-designer'
+import { Alert } from '~/components/ui/alert'
 import { Button } from '~/components/ui/button'
+import { Checkbox } from '~/components/ui/checkbox'
 import {
 	Dialog,
 	DialogContent,
@@ -34,6 +36,8 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '~/components/ui/dialog'
+import { Input } from '~/components/ui/input'
+import { Label } from '~/components/ui/label'
 import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { badgeQrUrl } from '~/utils/badge-qr'
@@ -142,6 +146,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			getAttachmentFileSrc(
 				template?.attachments.find(a => a.altText === alt)?.id ?? '',
 			)
+		const elements =
+			(template?.badgeTemplate?.elements as unknown as BadgeElement[] | null) ??
+			[]
+		// No designed template: the badge falls back to the old fixed layout,
+		// which always has a photo.
+		const legacy = elements.length === 0
+		const needsPhoto = legacy || elements.some(el => el.type === 'PHOTO')
 		return [
 			{
 				id: p.id,
@@ -162,6 +173,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				frontUrl: attachment('Front'),
 				backUrl: attachment('Back'),
 				template: template?.badgeTemplate ?? null,
+				problems: {
+					noPhoto: needsPhoto && !p.documents[0],
+					noDesign: legacy,
+				},
 			},
 		]
 	})
@@ -224,7 +239,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				'Nobody in the preview was still waiting to print. Check the box again.',
 		})
 
-	const { done, skipped } = await printPeople({
+	const { done, skipped, failed } = await printPeople({
 		request,
 		userId: user.id,
 		box: found.box,
@@ -232,8 +247,63 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		people,
 	})
 
-	// Lock printed badges to this box. A Size batch freezes as a whole: its
-	// unprinted members are reserved (no printedAt) until they print.
+	// Badges marked printed must be locked even if the run stopped early, or
+	// they could drift to another box while sitting in this pile.
+	let locked = true
+	try {
+		await lockToBox({ request, userId: user.id, found, name, done })
+	} catch (error) {
+		console.error(`Couldn't lock badges printed with box "${name}":`, error)
+		locked = false
+	}
+
+	const summary = actionSummary({
+		name,
+		skipped: skipped + (confirmed.size - stillReady.length),
+		left: found.ready.length - done.length - skipped,
+	})
+	if (failed || !locked)
+		return redirectWithToast(backTo(boxId, partKey), {
+			type: 'error',
+			title: failed
+				? `Stopped after ${done.length} of ${people.length}`
+				: `${done.length} printed, not locked`,
+			description: [
+				failed &&
+					`Something went wrong saving the rest, so the last ${failed} badges of this run weren’t marked printed. Keep them: they’ll show as ready on the next run, and you can confirm them without printing again.`,
+				!locked &&
+					'The printed badges couldn’t be locked to this box. Tell an admin before re-sorting the pile.',
+				summary,
+			]
+				.filter(Boolean)
+				.join(' '),
+		})
+
+	return redirectWithToast(backTo(boxId, partKey), {
+		type: 'success',
+		title: `${done.length} printed`,
+		description: summary,
+	})
+}
+
+/**
+ * Lock printed badges to this box. A Size batch freezes as a whole: its
+ * unprinted members are reserved (no printedAt) until they print.
+ */
+async function lockToBox({
+	request,
+	userId,
+	found,
+	name,
+	done,
+}: {
+	request: Request
+	userId: string
+	found: NonNullable<Awaited<ReturnType<typeof readyInBox>>>
+	name: string
+	done: { id: string }[]
+}) {
+	if (done.length === 0) return
 	const allParts = found.part
 		? found.allParts.filter(p => p.key === found.part?.key)
 		: found.allParts
@@ -259,7 +329,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 					boxId: p.boxId,
 					splitBy: p.splitBy,
 					part: p.part,
-					printedById: p.printed ? user.id : null,
+					printedById: p.printed ? userId : null,
 					printedAt: p.printed ? now : null,
 				})),
 				skipDuplicates: true,
@@ -270,7 +340,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 					boxId: found.box.id,
 					printedAt: null,
 				},
-				data: { printedById: user.id, printedAt: now },
+				data: { printedById: userId, printedAt: now },
 			}),
 		])
 		const printed = fresh.filter(([, p]) => p.printed).length + upgraded.length
@@ -283,7 +353,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			description: reserved
 				? `Locked ${printed} printed badge(s) to box "${name}" and reserved ${reserved} more in the same batch`
 				: `Locked ${printed} printed badge(s) to box "${name}"`,
-			userId: user.id,
+			userId,
 			tenantId: found.box.tenantId,
 			metadata: {
 				printedIds: [
@@ -294,16 +364,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			},
 		})
 	}
-
-	return redirectWithToast(backTo(boxId, partKey), {
-		type: 'success',
-		title: `${done.length} printed`,
-		description: actionSummary({
-			name,
-			skipped: skipped + (confirmed.size - stillReady.length),
-			left: found.ready.length - done.length - skipped,
-		}),
-	})
 }
 
 type BadgeRow = ReturnType<
@@ -494,6 +554,163 @@ function PdfFrame({
 	)
 }
 
+function hasProblem(b: BadgeRow) {
+	return b.problems.noPhoto || b.problems.noDesign
+}
+
+/**
+ * Badges that would come out wrong, shown before anything is printed, with a
+ * choice to leave them out of this run. Left-out people stay ready in the box.
+ */
+function PrintCheck({
+	badges,
+	leftOut,
+	onLeaveOut,
+	onPutBack,
+}: {
+	badges: BadgeRow[]
+	leftOut: boolean
+	onLeaveOut: () => void
+	onPutBack: () => void
+}) {
+	const flagged = badges.filter(hasProblem)
+	if (flagged.length === 0) return null
+	const noPhoto = flagged.filter(b => b.problems.noPhoto)
+	const noDesign = new Map<string, BadgeRow[]>()
+	for (const b of flagged.filter(b => b.problems.noDesign))
+		noDesign.set(b.typeName, [...(noDesign.get(b.typeName) ?? []), b])
+	const names = (bs: BadgeRow[]) =>
+		bs.map(b => `${b.firstName} ${b.familyName}`).join(', ')
+	const n = flagged.length
+	const badgesWord = n === 1 ? 'badge' : 'badges'
+	const mixed = noPhoto.length > 0 && noDesign.size > 0
+	const heading = leftOut
+		? `${n} ${badgesWord} left out of this run. ${n === 1 ? 'It stays' : 'They stay'} ready in the box.`
+		: mixed
+			? `${n} ${badgesWord} won’t come out right`
+			: noPhoto.length
+				? `${n} ${badgesWord} ${n === 1 ? 'has' : 'have'} no photo`
+				: `${n} ${badgesWord} will print on the old layout`
+
+	return (
+		<Alert variant="warning" className="flex-shrink-0 text-sm">
+			<AlertTriangle className="h-4 w-4" aria-hidden="true" />
+			<div className="flex items-start gap-3">
+				<div className="min-w-0 flex-1 space-y-1">
+					<p className="font-medium">{heading}</p>
+					{noPhoto.length > 0 && (
+						<p className="break-words">
+							{mixed && <span className="font-medium">No photo: </span>}
+							{names(noPhoto)}
+						</p>
+					)}
+					{[...noDesign].map(([type, bs]) => (
+						<p key={type} className="break-words">
+							<span className="font-medium">No badge design for {type}: </span>
+							{names(bs)}
+						</p>
+					))}
+				</div>
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					className="flex-shrink-0"
+					onClick={leftOut ? onPutBack : onLeaveOut}
+				>
+					{leftOut
+						? `Put the ${n === 1 ? 'badge' : n} back`
+						: n === 1
+							? 'Leave it out'
+							: `Leave these ${n} out`}
+				</Button>
+			</div>
+		</Alert>
+	)
+}
+
+/**
+ * After a jam or a misprint: tick the badges that came out right. Unticked
+ * people stay ready in the box for the next run.
+ */
+function PrintedChecklist({
+	badges,
+	came,
+	onChange,
+}: {
+	badges: BadgeRow[]
+	came: Set<string>
+	onChange: (came: Set<string>) => void
+}) {
+	const upTo = badges.findIndex(b => !came.has(b.id))
+	const contiguous =
+		upTo === -1 || badges.slice(upTo).every(b => !came.has(b.id))
+	const upToValue = upTo === -1 ? badges.length : upTo
+
+	return (
+		<div className="flex h-full flex-col gap-3">
+			<div className="flex flex-wrap items-center gap-2 text-sm">
+				<Label htmlFor="printed-up-to">Printed up to badge</Label>
+				<Input
+					id="printed-up-to"
+					type="number"
+					inputMode="numeric"
+					min={0}
+					max={badges.length}
+					className="w-20 text-base"
+					value={contiguous ? upToValue : ''}
+					onChange={e => {
+						const n = Math.max(
+							0,
+							Math.min(badges.length, Number(e.target.value) || 0),
+						)
+						onChange(new Set(badges.slice(0, n).map(b => b.id)))
+					}}
+				/>
+				<span className="text-muted-foreground">
+					of {badges.length}. Untick any that came out wrong.
+				</span>
+			</div>
+			<ol className="min-h-0 flex-1 divide-y overflow-y-auto rounded-md border">
+				{badges.map((b, i) => {
+					const id = `came-${b.id}`
+					return (
+						<li key={b.id}>
+							<label
+								htmlFor={id}
+								className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2 text-sm"
+							>
+								<Checkbox
+									id={id}
+									checked={came.has(b.id)}
+									onCheckedChange={checked => {
+										const next = new Set(came)
+										if (checked) next.add(b.id)
+										else next.delete(b.id)
+										onChange(next)
+									}}
+								/>
+								<span className="w-8 tabular-nums text-muted-foreground">
+									{i + 1}
+								</span>
+								<span className="min-w-0 flex-1 truncate">
+									{b.familyName.toUpperCase()}, {b.firstName}
+								</span>
+								<span className="hidden text-muted-foreground sm:inline">
+									{b.typeName}
+								</span>
+								<span className="w-24 text-right tabular-nums text-muted-foreground">
+									pages {2 * i + 1}–{2 * i + 2}
+								</span>
+							</label>
+						</li>
+					)
+				})}
+			</ol>
+		</div>
+	)
+}
+
 export default function PrintBoxDialog() {
 	const { boxId, name, partKey, badges, selection, waiting, left } =
 		useLoaderData<typeof loader>()
@@ -504,6 +721,19 @@ export default function PrintBoxDialog() {
 	React.useEffect(() => setIsClient(true), [])
 	const [pdfStatus, setPdfStatus] = React.useState<PdfStatus>('preparing')
 	const cancelTo = backTo(boxId, partKey ?? searchParams.get('part'))
+
+	const [leftOut, setLeftOut] = React.useState(false)
+	const toPrint = React.useMemo(
+		() => (leftOut ? badges.filter(b => !hasProblem(b)) : badges),
+		[badges, leftOut],
+	)
+	const changeLeftOut = (next: boolean) => {
+		setPdfStatus('preparing')
+		setLeftOut(next)
+	}
+	// Set while ticking off which badges came out; null = the preview.
+	const [came, setCame] = React.useState<Set<string> | null>(null)
+	const confirmed = came ? toPrint.filter(b => came.has(b.id)) : toPrint
 
 	return (
 		<Dialog open onOpenChange={() => {}}>
@@ -519,22 +749,45 @@ export default function PrintBoxDialog() {
 						<Printer className="h-6 w-6 text-green-600" aria-hidden="true" />
 					</div>
 					<DialogTitle className="text-center">
-						Print {badges.length} {badges.length === 1 ? 'badge' : 'badges'}
+						{came
+							? 'Which badges came out right?'
+							: `Print ${toPrint.length} ${toPrint.length === 1 ? 'badge' : 'badges'}`}
 					</DialogTitle>
-					<DialogDescription className="break-words text-center">
+					<p className="break-words text-center font-medium">
 						{name}
-						{selection && ', the people you selected'}. Print from the preview,
-						then confirm below.
-						{selection &&
+						{selection && (
+							<span className="font-normal text-muted-foreground">
+								{' '}
+								· the people you selected
+							</span>
+						)}
+					</p>
+					<DialogDescription className="mx-auto max-w-[65ch] break-words text-center">
+						{came
+							? 'Only ticked badges are marked printed.'
+							: 'Print from the preview, then confirm below.'}
+						{!came &&
+							selection &&
 							selection.notReady > 0 &&
 							` ${selection.notReady} of those you selected ${selection.notReady === 1 ? 'is' : 'are'} no longer ready and won’t be printed.`}
-						{!selection &&
+						{!came &&
+							!selection &&
 							waiting > 0 &&
 							` ${waiting} more in this box ${waiting === 1 ? 'isn’t' : 'aren’t'} ready and won’t be marked.`}
-						{left > 0 &&
+						{!came &&
+							left > 0 &&
 							` This run holds the first ${badges.length}; the other ${left} ready ${left === 1 ? 'badge waits' : 'badges wait'} for the next run.`}
 					</DialogDescription>
 				</DialogHeader>
+
+				{!came && (
+					<PrintCheck
+						badges={badges}
+						leftOut={leftOut}
+						onLeaveOut={() => changeLeftOut(true)}
+						onPutBack={() => changeLeftOut(false)}
+					/>
+				)}
 
 				<div className="min-h-0 flex-1">
 					{badges.length === 0 ? (
@@ -543,34 +796,81 @@ export default function PrintBoxDialog() {
 								? 'None of the people you selected are still waiting to print.'
 								: 'Nobody in this box is waiting to print.'}
 						</div>
-					) : isClient ? (
-						<BoxBadgesDocument
-							badges={badges}
-							title={name}
-							onStatus={setPdfStatus}
-						/>
-					) : null}
+					) : toPrint.length === 0 ? (
+						<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+							Every badge in this run is left out.
+						</div>
+					) : (
+						<>
+							{came && (
+								<PrintedChecklist
+									badges={toPrint}
+									came={came}
+									onChange={setCame}
+								/>
+							)}
+							{/* Kept mounted under the checklist so going back doesn't regenerate it. */}
+							<div className={came ? 'hidden' : 'h-full'}>
+								{isClient && (
+									<BoxBadgesDocument
+										key={leftOut ? 'without-flagged' : 'all'}
+										badges={toPrint}
+										title={name}
+										onStatus={setPdfStatus}
+									/>
+								)}
+							</div>
+						</>
+					)}
 				</div>
 
 				<DialogFooter className="flex-shrink-0 gap-2 sm:gap-0">
-					<Form method="POST" className="flex w-full gap-2">
+					<Form method="POST" className="flex w-full flex-wrap gap-2">
 						<AuthenticityTokenInput />
 						<HoneypotInputs />
 						{partKey && <input type="hidden" name="part" value={partKey} />}
 						<input
 							type="hidden"
 							name="ids"
-							value={badges.map(b => b.id).join(',')}
+							value={confirmed.map(b => b.id).join(',')}
 						/>
-						{badges.length === 0 ? (
+						{toPrint.length === 0 ? (
 							<Button asChild variant="outline" className="flex-1">
 								<Link to={cancelTo} preventScrollReset>
 									Close
 								</Link>
 							</Button>
+						) : came ? (
+							<>
+								<Button
+									key="back"
+									type="button"
+									variant="outline"
+									className="flex-1"
+									disabled={busy}
+									onClick={() => setCame(null)}
+								>
+									Back to preview
+								</Button>
+								<Button
+									key="mark-some"
+									type="submit"
+									name="intent"
+									value={confirmed.length ? 'printed' : 'not-printed'}
+									className="flex-1"
+									disabled={busy}
+								>
+									{busy
+										? 'Saving…'
+										: confirmed.length
+											? `Mark ${confirmed.length} printed`
+											: 'None printed'}
+								</Button>
+							</>
 						) : (
 							<>
 								<Button
+									key="not-printed"
 									type="submit"
 									variant="outline"
 									name="intent"
@@ -581,6 +881,17 @@ export default function PrintBoxDialog() {
 									Not printed
 								</Button>
 								<Button
+									key="some-failed"
+									type="button"
+									variant="outline"
+									className="flex-1"
+									disabled={busy || pdfStatus !== 'ready'}
+									onClick={() => setCame(new Set(toPrint.map(b => b.id)))}
+								>
+									Some didn’t print
+								</Button>
+								<Button
+									key="mark-all"
 									type="submit"
 									name="intent"
 									value="printed"
@@ -593,7 +904,7 @@ export default function PrintBoxDialog() {
 											? 'Preparing badges…'
 											: pdfStatus === 'failed'
 												? 'Badges not generated'
-												: `All ${badges.length} printed`}
+												: `All ${toPrint.length} printed`}
 								</Button>
 							</>
 						)}

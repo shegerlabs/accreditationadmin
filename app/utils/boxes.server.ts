@@ -550,7 +550,9 @@ export async function readyInBox(
 
 /**
  * Mark each person's badge printed, as the print queue would. Anyone someone
- * else moved in the meantime is skipped, not failed.
+ * else moved in the meantime is skipped, not failed. Any other error stops the
+ * run instead of throwing, so the caller still locks the badges already marked:
+ * `failed` counts the people never reached.
  */
 export async function printPeople({
 	request,
@@ -567,7 +569,8 @@ export async function printPeople({
 }) {
 	const done: ServerPerson[] = []
 	let skipped = 0
-	for (const p of people) {
+	let failed = 0
+	for (const [i, p] of people.entries()) {
 		try {
 			await processParticipant(
 				p.id,
@@ -581,7 +584,12 @@ export async function printPeople({
 				skipped++
 				continue
 			}
-			throw error
+			console.error(
+				`Box print "${scopeName}" stopped at ${p.id} after ${done.length} printed:`,
+				error,
+			)
+			failed = people.length - i
+			break
 		}
 		done.push(p)
 		await auditRequest({
@@ -604,7 +612,7 @@ export async function printPeople({
 			},
 		})
 	}
-	return { done, skipped }
+	return { done, skipped, failed }
 }
 
 function isConflict(error: unknown) {
