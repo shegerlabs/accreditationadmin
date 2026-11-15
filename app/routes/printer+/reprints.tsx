@@ -56,65 +56,67 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const participantIds = [...new Set(pendingRequests.map(r => r.participantId))]
 
 	// Get participant details
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.participant,
-		searchFields: [
-			'email',
-			'organization',
-			'registrationCode',
-			'firstName',
-			'familyName',
-		],
-		filterFields: [],
-		orderBy: [{ updatedAt: 'desc' }],
-		where: {
-			id: { in: participantIds },
-			deletedAt: null,
-		},
-		select: {
-			id: true,
-			email: true,
-			firstName: true,
-			familyName: true,
-			organization: true,
-			registrationCode: true,
-			status: true,
-			reprintCount: true,
-			step: {
-				select: {
-					name: true,
-					action: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.participant,
+			searchFields: [
+				'email',
+				'organization',
+				'registrationCode',
+				'firstName',
+				'familyName',
+			],
+			filterFields: [],
+			orderBy: [{ updatedAt: 'desc' }],
+			where: {
+				id: { in: participantIds },
+				deletedAt: null,
+			},
+			select: {
+				id: true,
+				email: true,
+				firstName: true,
+				familyName: true,
+				organization: true,
+				registrationCode: true,
+				status: true,
+				reprintCount: true,
+				step: {
+					select: {
+						name: true,
+						action: true,
+					},
+				},
+				participantType: {
+					select: {
+						name: true,
+					},
+				},
+				country: {
+					select: {
+						name: true,
+					},
+				},
+				documents: {
+					where: {
+						documentType: 'PHOTO',
+					},
+					select: {
+						id: true,
+					},
+					take: 1,
 				},
 			},
-			participantType: {
-				select: {
-					name: true,
-				},
-			},
-			country: {
-				select: {
-					name: true,
-				},
-			},
-			documents: {
-				where: {
-					documentType: 'PHOTO',
-				},
-				select: {
-					id: true,
-				},
-				take: 1,
-			},
-		},
-	})
+		})
 
 	// Create a map of participant ID to their reprint request info
 	const requestMap = new Map(
 		pendingRequests.map(r => [
 			r.participantId,
 			{
-				reason: r.remarks?.replace('Reprint requested: ', '') || 'No reason provided',
+				reason:
+					r.remarks?.replace('Reprint requested: ', '') || 'No reason provided',
 				requestedAt: r.createdAt,
 				requestedBy: r.user?.name || r.user?.username || 'Unknown',
 			},
@@ -147,7 +149,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function PrinterReprintsRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage, defaultPageSize, pageSizeOptions, maxReprints, reprintWarningThreshold } = data
+	const {
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		maxReprints,
+		reprintWarningThreshold,
+	} = data
 	const location = useLocation()
 
 	// Check if we're on a detail page route
@@ -282,8 +291,7 @@ export default function PrinterReprintsRoute() {
 						{
 							label: 'View',
 							icon: <EyeIcon className="h-4 w-4" />,
-							href: (participant: any) =>
-								`/printer/reprints/${participant.id}`,
+							href: (participant: any) => `/printer/reprints/${participant.id}`,
 							variant: 'outline' as const,
 						},
 						{
@@ -295,7 +303,6 @@ export default function PrinterReprintsRoute() {
 						},
 					]}
 					status={data.status}
-					
 					keyExtractor={participant => participant.id}
 					totalPages={totalPages}
 					currentPage={currentPage}

@@ -2,7 +2,13 @@ import { getFormProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
 import { Action, AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
-import { Form, useActionData, useLoaderData, useNavigate, useParams } from '@remix-run/react'
+import {
+	Form,
+	useActionData,
+	useLoaderData,
+	useNavigate,
+	useParams,
+} from '@remix-run/react'
 import { Printer, RefreshCw } from 'lucide-react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
@@ -304,7 +310,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		passportNumber: participant.passportNumber,
 		passportExpiry: participant.passportExpiry,
 		attendClosedSession: participant.attendClosedSession,
-		attendExecutiveCouncilClosedSession: participant.attendExecutiveCouncilClosedSession,
+		attendExecutiveCouncilClosedSession:
+			participant.attendExecutiveCouncilClosedSession,
 		profileUrl: badgeQrUrl(baseUrl, 'reprints', participant),
 		reprintCount: participant.reprintCount,
 	}
@@ -331,7 +338,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		badgeTemplate: badgeTemplateRecord?.badgeTemplate ?? null,
 		participantTypeName: participant?.participantType.name,
 		eventName: participant?.event?.name,
-		reprintReason: pendingRequest.remarks?.replace('Reprint requested: ', '') || 'No reason provided',
+		reprintReason:
+			pendingRequest.remarks?.replace('Reprint requested: ', '') ||
+			'No reason provided',
 	})
 }
 
@@ -387,7 +396,8 @@ export default function ReprintBadgeDialog() {
 				participantType: participantTypeName ?? undefined,
 				eventName: eventName ?? undefined,
 				closedSession: general.attendClosedSession,
-				executiveCouncilClosedSession: general.attendExecutiveCouncilClosedSession,
+				executiveCouncilClosedSession:
+					general.attendExecutiveCouncilClosedSession,
 				profileUrl: general.profileUrl,
 				photoUrl: photoLink,
 				// Add reprint indicator
@@ -437,14 +447,20 @@ export default function ReprintBadgeDialog() {
 				{/* Reprint Info Banner */}
 				<div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
 					<div className="flex items-center gap-2">
-						<Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-800">
+						<Badge
+							variant="outline"
+							className="border-amber-400 bg-amber-100 text-amber-800"
+						>
 							REPRINT #{general.reprintCount + 1}
 						</Badge>
 						<span className="text-sm text-amber-800">
 							{general.firstName} {general.familyName}
 						</span>
 					</div>
-					<span className="max-w-[300px] truncate text-sm text-amber-700" title={reprintReason}>
+					<span
+						className="max-w-[300px] truncate text-sm text-amber-700"
+						title={reprintReason}
+					>
 						Reason: {reprintReason}
 					</span>
 				</div>
@@ -465,7 +481,8 @@ export default function ReprintBadgeDialog() {
 								name: `${general.firstName} ${general.familyName}`,
 								organization: professional.organization,
 								closedSession: general.attendClosedSession,
-								executiveCouncilClosedSession: general.attendExecutiveCouncilClosedSession,
+								executiveCouncilClosedSession:
+									general.attendExecutiveCouncilClosedSession,
 								profileUrl: general.profileUrl,
 							}}
 							photoUrl={photoLink}
