@@ -16,6 +16,8 @@ export function PrintBoxButton({
 }) {
 	const ready = part ? part.readyPeople : box.readyPeople
 	const waiting = part ? part.waiting : box.waiting
+	// A split box is packed per smaller box; each card has its own button.
+	if (!part && box.parts) return null
 	const partKey = part?.key ?? box.part?.key ?? null
 	const label =
 		ready.length === 0

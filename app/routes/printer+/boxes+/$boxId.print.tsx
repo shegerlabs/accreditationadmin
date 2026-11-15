@@ -63,6 +63,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const found = await readyInBox(user.id, params.boxId ?? '', partKey)
 	invariantResponse(found, 'This box isn’t in your events', { status: 404 })
+	// A split box is packed per smaller box, so it's printed one at a time.
+	if (found.box.splitBy && !found.part)
+		return redirectWithToast(backTo(found.box.id, null), {
+			type: 'message',
+			title: 'Pick a smaller box',
+			description: 'This box is split; print each smaller box on its own.',
+		})
 
 	// ?only= prints just the people ticked in the box, if still ready.
 	const only = new Set(
@@ -191,6 +198,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const found = await readyInBox(user.id, boxId, partKey)
 	invariantResponse(found, 'This box isn’t in your events', { status: 404 })
+	// A split box is packed per smaller box, so it's printed one at a time.
+	if (found.box.splitBy && !found.part)
+		return redirectWithToast(backTo(found.box.id, null), {
+			type: 'message',
+			title: 'Pick a smaller box',
+			description: 'This box is split; print each smaller box on its own.',
+		})
 
 	const confirmed = new Set(
 		String(formData.get('ids') ?? '')
