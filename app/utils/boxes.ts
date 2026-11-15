@@ -2,6 +2,7 @@
 // in bulk. Membership is computed here, never stored, and a person is in one
 // box at most (see assignBoxes). Shared by server and client, so no Prisma.
 import type { BoxSplit } from '@prisma/client'
+import type { BadgeProblems } from './batch-print'
 
 export type BoxViewer = 'printer' | 'admin'
 
@@ -89,6 +90,14 @@ export const NO_INVITATION = 'No invitation'
 
 /** Badges per print run. Every badge, with its photo, renders into one PDF in the browser. */
 export const MAX_PER_PRINT = 50
+
+/**
+ * Where a box dialog (print, box sheet) goes back to: the box page it was
+ * opened from, passed as `back`. Anything else falls back to `fallback`.
+ */
+export function boxDialogBack(back: string | null, fallback: string) {
+	return back && /^\/printer\/boxes(\?|$)/.test(back) ? back : fallback
+}
 
 export type BoxPerson = {
 	id: string
@@ -683,6 +692,8 @@ export type MemberRow = BoxPerson & {
 	 * other way (the print queue), so it isn't in the box's pile.
 	 */
 	placedHere: 'printed' | 'reserved' | 'outside' | null
+	/** Why their badge would come out wrong; null if fine or already printed. */
+	problems: BadgeProblems | null
 }
 
 export type PartCard = PartSummary & {
@@ -690,6 +701,8 @@ export type PartCard = PartSummary & {
 	waiting: number
 	manual: number
 	readyPeople: ReadyPerson[]
+	/** Not printed yet, and their badge would come out wrong. */
+	needsFixing: number
 }
 
 export type SelectedBox = {
@@ -710,6 +723,8 @@ export type SelectedBox = {
 	readyPeople: ReadyPerson[]
 	/** Not ready to print yet, and not printed either. */
 	waiting: number
+	/** Not printed yet, and their badge would come out wrong. */
+	needsFixing: number
 	lockedHere: number
 	/** Badges locked to the whole box, whatever smaller box is open. */
 	lockedInBox: number

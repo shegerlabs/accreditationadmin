@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearchParams } from '@remix-run/react'
-import { Lock } from 'lucide-react'
+import { AlertTriangle, Lock } from 'lucide-react'
 import * as React from 'react'
 import {
 	type BatchInfo,
@@ -403,6 +403,7 @@ function BoxHeader({
 					their badge was printed in.
 				</p>
 			)}
+			{box.needsFixing > 0 && <FixingNote box={box} viewer={viewer} />}
 			{box.lockedHere > 0 && (
 				<p className="text-xs text-muted-foreground">
 					<Lock className="mr-1 inline h-3 w-3 align-[-1px]" />
@@ -461,6 +462,13 @@ function PartCardView({
 							}`}
 					{part.manual > 0 && ` · ${part.manual} added by hand`}
 				</p>
+				{part.needsFixing > 0 && (
+					<p className="flex items-center gap-1 text-xs text-amber-800">
+						<AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+						{part.needsFixing} {part.needsFixing === 1 ? 'needs' : 'need'}{' '}
+						fixing before printing
+					</p>
+				)}
 				<PartTag part={part} />
 				<StageBar
 					counts={part.stages}
@@ -526,13 +534,15 @@ function MemberTable({
 	// The whole box is already loaded, so the search bar filters it here.
 	const query = (searchParams.get('search') ?? '').trim().toLowerCase()
 	const stage = searchParams.get('stage')
+	const fixOnly = searchParams.get('badge') === 'fix'
 	const shown = members.filter(
 		m =>
 			(!query ||
 				[personName(m), m.code, m.typeName, m.invitationName].some(v =>
 					v?.toLowerCase().includes(query),
 				)) &&
-			(!stage || m.stage === stage),
+			(!stage || m.stage === stage) &&
+			(!fixOnly || !!m.problems),
 	)
 	// Drop anyone who stopped being ready, or is filtered out, since ticked.
 	const shownIds = new Set(shown.map(m => m.id))
@@ -575,7 +585,12 @@ function MemberTable({
 		{
 			key: 'status',
 			header: 'Status',
-			render: (m: MemberRow) => <StagePill stage={m.stage} />,
+			render: (m: MemberRow) => (
+				<>
+					<StagePill stage={m.stage} />
+					{m.problems && <ProblemTags problems={m.problems} />}
+				</>
+			),
 		},
 	]
 
@@ -598,6 +613,16 @@ function MemberTable({
 								value: st,
 								label: STAGE_META[st].label,
 							})),
+						],
+					},
+					{
+						name: 'badge',
+						label: 'Badge',
+						type: 'select',
+						show: box.needsFixing > 0 || fixOnly,
+						options: [
+							{ value: 'all', label: 'All' },
+							{ value: 'fix', label: 'Needs fixing' },
 						],
 					},
 				]}
@@ -657,5 +682,60 @@ function Why({ m }: { m: MemberRow }) {
 				</span>
 			)}
 		</>
+	)
+}
+
+/** What would come out wrong on a badge, under its status. */
+function ProblemTags({
+	problems,
+}: {
+	problems: NonNullable<MemberRow['problems']>
+}) {
+	return (
+		<span className="mt-1 flex flex-col gap-0.5 text-xs text-amber-800">
+			{problems.noPhoto && (
+				<span className="flex items-center gap-1">
+					<AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+					No photo
+				</span>
+			)}
+			{problems.noDesign && (
+				<span className="flex items-center gap-1">
+					<AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+					No badge design for the type
+				</span>
+			)}
+		</span>
+	)
+}
+
+/** How many badges would come out wrong, and a way to list just them. */
+function FixingNote({ box, viewer }: { box: SelectedBox; viewer: BoxViewer }) {
+	const n = box.needsFixing
+	const [searchParams] = useSearchParams()
+	const listed = !!box.members
+	const showing = searchParams.get('badge') === 'fix'
+	const sp = new URLSearchParams(searchParams)
+	if (showing) sp.delete('badge')
+	else sp.set('badge', 'fix')
+	return (
+		<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-amber-800">
+			<AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+			<span>
+				{`${n} ${n === 1 ? 'badge' : 'badges'} ${viewer === 'printer' ? 'awaiting print' : 'not printed yet'} won’t come out right: no photo, or no badge design for the type.`}
+				{viewer === 'printer' &&
+					' Add a missing photo from the list; a missing design is added by an admin under the event’s templates.'}
+				{!listed && ' Open a smaller box to see who.'}
+			</span>
+			{listed && (
+				<Link
+					to={{ search: `?${sp}` }}
+					preventScrollReset
+					className="font-medium underline underline-offset-2"
+				>
+					{showing ? 'Show everyone' : `Show ${n === 1 ? 'it' : 'them'}`}
+				</Link>
+			)}
+		</p>
 	)
 }

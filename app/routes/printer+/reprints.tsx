@@ -1,59 +1,24 @@
 import { json, LoaderFunctionArgs } from '@remix-run/node'
 import { Link, Outlet, useLoaderData, useLocation } from '@remix-run/react'
 import { format } from 'date-fns'
+import * as React from 'react'
 import { EyeIcon, ImageIcon, PrinterIcon, RefreshCw } from 'lucide-react'
 import { DataList } from '~/components/data-list'
 import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
 import { SearchBar } from '~/components/search-bar'
 import { Badge } from '~/components/ui/badge'
+import { Button } from '~/components/ui/button'
 import { Card, CardContent } from '~/components/ui/card'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
+import { pendingReprints } from '~/utils/reprints.server'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, ['printer'])
 
-	// Find all participants with pending reprint requests
-	// A reprint request is pending if there's a REPRINT approval
-	// that doesn't have a subsequent PRINT approval
-	const reprintRequests = await prisma.approval.findMany({
-		where: {
-			action: 'REPRINT',
-			result: 'SUCCESS',
-		},
-		select: {
-			id: true,
-			participantId: true,
-			remarks: true,
-			createdAt: true,
-			user: {
-				select: {
-					name: true,
-					username: true,
-				},
-			},
-		},
-		orderBy: { createdAt: 'desc' },
-	})
-
-	// Filter to only pending requests (no PRINT after the request)
-	const pendingRequests = []
-	for (const request of reprintRequests) {
-		const fulfilledPrint = await prisma.approval.findFirst({
-			where: {
-				participantId: request.participantId,
-				action: 'PRINT',
-				createdAt: { gt: request.createdAt },
-			},
-		})
-		if (!fulfilledPrint) {
-			pendingRequests.push(request)
-		}
-	}
-
-	// Get unique participant IDs
-	const participantIds = [...new Set(pendingRequests.map(r => r.participantId))]
+	const pending = await pendingReprints()
+	const participantIds = [...pending.keys()]
 
 	// Get participant details
 	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
@@ -110,23 +75,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			},
 		})
 
-	// Create a map of participant ID to their reprint request info
-	const requestMap = new Map(
-		pendingRequests.map(r => [
-			r.participantId,
-			{
-				reason:
-					r.remarks?.replace('Reprint requested: ', '') || 'No reason provided',
-				requestedAt: r.createdAt,
-				requestedBy: r.user?.name || r.user?.username || 'Unknown',
-			},
-		]),
-	)
-
 	// Enrich participant data with reprint request info
 	const enrichedData = data.map((p: any) => ({
 		...p,
-		reprintRequest: requestMap.get(p.id),
+		reprintRequest: pending.get(p.id),
 	}))
 
 	// Get reprint settings
@@ -142,6 +94,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		currentPage,
 		defaultPageSize,
 		pageSizeOptions,
+		pendingCount: participantIds.length,
 		maxReprints,
 		reprintWarningThreshold,
 	} as const)
@@ -158,6 +111,7 @@ export default function PrinterReprintsRoute() {
 		reprintWarningThreshold,
 	} = data
 	const location = useLocation()
+	const [ticked, setTicked] = React.useState<Set<string>>(() => new Set())
 
 	// Check if we're on a detail page route
 	const isDetailRoute =
@@ -171,14 +125,27 @@ export default function PrinterReprintsRoute() {
 
 	return (
 		<div className="flex flex-col gap-6">
-			{/* Search */}
-			<SearchBar
-				status={data.status}
-				action="/printer/reprints"
-				autoSubmit={true}
-				showAddButton={false}
-				filters={[]}
-			/>
+			<div className="flex flex-wrap items-start gap-3">
+				<div className="min-w-0 flex-1">
+					<SearchBar
+						status={data.status}
+						action="/printer/reprints"
+						autoSubmit={true}
+						showAddButton={false}
+						filters={[]}
+					/>
+				</div>
+				{data.pendingCount > 0 && (
+					<Button asChild>
+						<Link to="/printer/reprints/print">
+							<PrinterIcon className="mr-2 h-4 w-4" />
+							{data.pendingCount === 1
+								? 'Reprint it'
+								: `Reprint all ${data.pendingCount}`}
+						</Link>
+					</Button>
+				)}
+			</div>
 
 			{/* Table */}
 			{data.participants.length === 0 ? (
@@ -304,6 +271,27 @@ export default function PrinterReprintsRoute() {
 					]}
 					status={data.status}
 					keyExtractor={participant => participant.id}
+					selectable
+					selectedIds={ticked}
+					onSelectionChange={setTicked}
+					renderBulkActions={ids => (
+						<>
+							<Button
+								size="sm"
+								variant="ghost"
+								onClick={() => setTicked(new Set())}
+							>
+								Clear
+							</Button>
+							<Button size="sm" asChild>
+								<Link
+									to={`/printer/reprints/print?${new URLSearchParams({ only: [...ids].join(',') })}`}
+								>
+									Reprint {ids.size} selected
+								</Link>
+							</Button>
+						</>
+					)}
 					totalPages={totalPages}
 					currentPage={currentPage}
 					defaultPageSize={defaultPageSize}

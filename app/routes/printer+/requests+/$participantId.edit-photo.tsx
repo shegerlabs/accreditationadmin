@@ -5,13 +5,22 @@ import {
 	unstable_createMemoryUploadHandler as createMemoryUploadHandler,
 	unstable_parseMultipartFormData as parseMultipartFormData,
 } from '@remix-run/node'
-import { Form, useLoaderData, useNavigate, useNavigation, useParams } from '@remix-run/react'
+import {
+	Form,
+	useLoaderData,
+	useNavigate,
+	useNavigation,
+} from '@remix-run/react'
+import * as React from 'react'
 import { useState } from 'react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
+import { safeRedirect } from 'remix-utils/safe-redirect'
 import { PhotoEditor } from '~/components/photo-editor'
 import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
 import { Button } from '~/components/ui/button'
+import { Input } from '~/components/ui/input'
+import { Label } from '~/components/ui/label'
 import { StatusButton } from '~/components/ui/status-button'
 import {
 	Dialog,
@@ -21,7 +30,14 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '~/components/ui/dialog'
-import { Action, RequestStatus } from '@prisma/client'
+import { createId } from '@paralleldrive/cuid2'
+import {
+	Action,
+	AuditAction,
+	AuditEntityType,
+	RequestStatus,
+} from '@prisma/client'
+import { auditRequest } from '~/utils/audit.server'
 import {
 	getUserAccessibleStepIds,
 	requireUserWithRoles,
@@ -33,6 +49,19 @@ import { getParticipantDocumentFileSrc, invariantResponse } from '~/utils/misc'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { uploadFile } from '~/utils/storage.server'
 import { redirectWithToast } from '~/utils/toast.server'
+
+/**
+ * Where to go after saving or cancelling: back to the page that sent the
+ * printer here (e.g. a box), if it's a printer page, else the participant.
+ */
+function returnTo(
+	raw: FormDataEntryValue | string | null,
+	participantId: string,
+) {
+	const fallback = `/printer/requests/${participantId}`
+	const to = typeof raw === 'string' ? safeRedirect(raw, fallback) : fallback
+	return to.startsWith('/printer/') ? to : fallback
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, ['printer'])
@@ -73,24 +102,25 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 
 	invariantResponse(participant, 'Access denied', { status: 403 })
-	invariantResponse(participant.documents[0], 'No photo to edit', {
-		status: 404,
-	})
 
-	const photo = participant.documents[0]
-	const photoUrl = getParticipantDocumentFileSrc(photo.id)
+	// No photo yet: the printer can add one.
+	const photo = participant.documents[0] ?? null
 
 	return json({
+		redirectTo: returnTo(
+			new URL(request.url).searchParams.get('redirectTo'),
+			participant.id,
+		),
 		participant: {
 			id: participant.id,
 			firstName: participant.firstName,
 			familyName: participant.familyName,
 		},
-		photo: {
+		photo: photo && {
 			id: photo.id,
 			fileName: photo.fileName,
 			extension: photo.extension,
-			url: photoUrl,
+			url: getParticipantDocumentFileSrc(photo.id),
 		},
 	})
 }
@@ -102,7 +132,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	invariantResponse(participantId, 'Participant ID required')
 
 	// Get upload settings
-	const maxImageSizeMB = await getSetting<number>(SettingKeys.UPLOAD_MAX_IMAGE_SIZE_MB)
+	const maxImageSizeMB = await getSetting<number>(
+		SettingKeys.UPLOAD_MAX_IMAGE_SIZE_MB,
+	)
 	const maxImageSizeBytes = maxImageSizeMB * 1024 * 1024
 
 	const uploadHandler = createMemoryUploadHandler({
@@ -143,15 +175,50 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const photoFile = formData.get('photo') as File | null
 	invariantResponse(photoFile && photoFile.size > 0, 'Photo file required')
 
-	// Get the existing photo document
 	const existingPhoto = participant.documents[0]
-	invariantResponse(existingPhoto, 'No existing photo to update')
+	const redirectTo = returnTo(formData.get('redirectTo'), participantId)
 
-	// Upload the new photo to the same path as the original
 	// Path structure: accreditation/participants/{participantId}/{fileName}.{extension}
 	const arrayBuffer = await photoFile.arrayBuffer()
 	const buffer = Buffer.from(arrayBuffer)
 
+	if (!existingPhoto) {
+		// The editor always saves a JPEG.
+		const fileName = `photo-${createId()}`
+		await uploadFile({
+			containerName: 'accreditation',
+			directory: `participants/${participantId}`,
+			fileName,
+			extension: 'jpg',
+			blob: buffer,
+		})
+		await prisma.participantDocument.create({
+			data: {
+				participantId,
+				documentType: 'PHOTO',
+				contentType: 'image/jpeg',
+				fileName,
+				extension: 'jpg',
+				altText: `${participant.firstName} ${participant.familyName}`,
+			},
+		})
+		await auditRequest({
+			request,
+			action: AuditAction.UPDATE,
+			entityType: AuditEntityType.PARTICIPANT,
+			entityId: participantId,
+			description: `Added a photo for ${participant.firstName} ${participant.familyName}`,
+			userId: user.id,
+			tenantId: participant.tenantId,
+		})
+		return redirectWithToast(redirectTo, {
+			type: 'success',
+			title: 'Photo added',
+			description: `${participant.firstName} ${participant.familyName}’s badge can be printed with a photo now.`,
+		})
+	}
+
+	// Upload the new photo to the same path as the original
 	await uploadFile({
 		containerName: 'accreditation',
 		directory: `participants/${participantId}`,
@@ -168,7 +235,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		},
 	})
 
-	return redirectWithToast(`/printer/requests/${participantId}`, {
+	return redirectWithToast(redirectTo, {
 		type: 'success',
 		title: 'Photo Updated',
 		description: 'The participant photo has been updated successfully.',
@@ -176,19 +243,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function EditPhotoDialog() {
-	const { participant, photo } = useLoaderData<typeof loader>()
+	const { participant, photo, redirectTo } = useLoaderData<typeof loader>()
 	const navigate = useNavigate()
 	const navigation = useNavigation()
-	const params = useParams()
 
 	const isSubmitting = navigation.state === 'submitting'
 
+	// Adding a photo: the file the printer picked, until it's cropped.
+	const [picked, setPicked] = useState<string | null>(null)
+	React.useEffect(
+		() => () => {
+			if (picked) URL.revokeObjectURL(picked)
+		},
+		[picked],
+	)
+	const imageUrl = photo?.url ?? picked
 	const [isEditorOpen, setIsEditorOpen] = useState(true)
 	const [editedPhotoBlob, setEditedPhotoBlob] = useState<Blob | null>(null)
 	const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
 	const handleCancel = () => {
-		navigate(`/printer/requests/${params.participantId}`)
+		navigate(redirectTo)
 	}
 
 	const handleEditorSave = (blob: Blob) => {
@@ -203,15 +278,49 @@ export default function EditPhotoDialog() {
 
 	return (
 		<>
+			{!imageUrl && (
+				<Dialog open={true} onOpenChange={handleCancel}>
+					<DialogContent className="sm:max-w-md">
+						<DialogHeader>
+							<DialogTitle className="text-center">
+								Add a photo for {participant.firstName} {participant.familyName}
+							</DialogTitle>
+							<DialogDescription className="text-center">
+								There’s no photo yet. Choose one, then crop it for the badge.
+							</DialogDescription>
+						</DialogHeader>
+						<Label htmlFor="new-photo" className="sr-only">
+							Photo
+						</Label>
+						<Input
+							id="new-photo"
+							type="file"
+							accept="image/jpeg,image/png"
+							onChange={e => {
+								const file = e.currentTarget.files?.[0]
+								if (file) setPicked(URL.createObjectURL(file))
+							}}
+						/>
+						<DialogFooter>
+							<Button type="button" variant="outline" onClick={handleCancel}>
+								Cancel
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+			)}
+
 			{/* Photo Editor Dialog */}
-			<PhotoEditor
-				imageUrl={photo.url}
-				open={isEditorOpen}
-				onClose={handleCancel}
-				onSave={handleEditorSave}
-				aspectRatio={3 / 4}
-				title={`Edit Photo - ${participant.firstName} ${participant.familyName}`}
-			/>
+			{imageUrl && (
+				<PhotoEditor
+					imageUrl={imageUrl}
+					open={isEditorOpen}
+					onClose={handleCancel}
+					onSave={handleEditorSave}
+					aspectRatio={3 / 4}
+					title={`${photo ? 'Edit' : 'Add'} Photo - ${participant.firstName} ${participant.familyName}`}
+				/>
+			)}
 
 			{/* Confirmation Dialog after editing */}
 			{editedPhotoBlob && !isEditorOpen && (
@@ -242,11 +351,8 @@ export default function EditPhotoDialog() {
 						<Form method="POST" encType="multipart/form-data">
 							<AuthenticityTokenInput />
 							<HoneypotInputs />
-							<input
-								type="hidden"
-								name="photo"
-								value=""
-							/>
+							<input type="hidden" name="redirectTo" value={redirectTo} />
+							<input type="hidden" name="photo" value="" />
 							<DialogFooter className="gap-2 sm:gap-0">
 								<Button
 									type="button"
@@ -268,7 +374,7 @@ export default function EditPhotoDialog() {
 									type="submit"
 									status={isSubmitting ? 'pending' : 'idle'}
 									disabled={isSubmitting}
-									onClick={(e) => {
+									onClick={e => {
 										// Replace the hidden input with the actual file
 										const form = e.currentTarget.closest('form')
 										if (form && editedPhotoBlob) {

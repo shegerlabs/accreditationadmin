@@ -1,6 +1,5 @@
 import { getFormProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
-import { Action, AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
 import {
 	Form,
@@ -31,7 +30,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '~/components/ui/dialog'
-import { auditRequest } from '~/utils/audit.server'
 import { badgeQrUrl } from '~/utils/badge-qr'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
@@ -42,6 +40,7 @@ import {
 	getParticipantDocumentFileSrc,
 	invariantResponse,
 } from '~/utils/misc'
+import { recordReprint } from '~/utils/reprints.server'
 import { redirectWithToast } from '~/utils/toast.server'
 
 export const ReprintSchema = z.object({
@@ -79,132 +78,29 @@ export async function action({ request }: ActionFunctionArgs) {
 		})
 	}
 
-	// Get participant (no step filter needed for reprints)
-	const participant = await prisma.participant.findUnique({
-		where: { id: participantId },
-		select: {
-			id: true,
-			firstName: true,
-			familyName: true,
-			email: true,
-			organization: true,
-			status: true,
-			tenantId: true,
-			reprintCount: true,
-			step: {
-				select: {
-					id: true,
-					name: true,
-					workflow: {
-						select: {
-							id: true,
-							name: true,
-							event: {
-								select: { id: true, name: true },
-							},
-						},
-					},
-				},
-			},
-			participantType: {
-				select: { id: true, name: true },
-			},
-		},
+	const reprint = await recordReprint({
+		request,
+		userId: user.id,
+		participantId,
 	})
-
-	invariantResponse(participant, 'Participant not found', { status: 404 })
-
-	// Verify there's a pending reprint request
-	const pendingRequest = await prisma.approval.findFirst({
-		where: {
-			participantId: participant.id,
-			action: 'REPRINT',
-			result: 'SUCCESS',
-		},
-		orderBy: { createdAt: 'desc' },
-	})
-
-	if (pendingRequest) {
-		const fulfilledPrint = await prisma.approval.findFirst({
-			where: {
-				participantId: participant.id,
-				action: 'PRINT',
-				createdAt: { gt: pendingRequest.createdAt },
-			},
-		})
-
-		if (fulfilledPrint) {
-			return redirectWithToast(`/printer/reprints`, {
-				type: 'error',
-				title: 'Already Reprinted',
-				description: `This reprint request has already been fulfilled.`,
-			})
-		}
-	} else {
+	if (reprint.result !== 'done')
 		return redirectWithToast(`/printer/reprints`, {
 			type: 'error',
-			title: 'No Reprint Request',
-			description: `There is no pending reprint request for this participant.`,
+			...(reprint.result === 'none'
+				? {
+						title: 'No Reprint Request',
+						description: `There is no pending reprint request for this participant.`,
+					}
+				: {
+						title: 'Already Reprinted',
+						description: `This reprint request has already been fulfilled.`,
+					}),
 		})
-	}
-
-	// Increment reprint count
-	await prisma.participant.update({
-		where: { id: participant.id },
-		data: {
-			reprintCount: { increment: 1 },
-		},
-	})
-
-	// Create PRINT approval record (for the reprint)
-	await prisma.approval.create({
-		data: {
-			participantId: participant.id,
-			stepId: participant.step.id,
-			userId: user.id,
-			action: Action.PRINT,
-			result: 'SUCCESS',
-			remarks: `Badge Reprinted (reprint #${participant.reprintCount + 1})`,
-		},
-	})
-
-	// Log reprint action
-	await auditRequest({
-		request,
-		action: AuditAction.REPRINT,
-		entityType: AuditEntityType.PARTICIPANT,
-		entityId: participant.id,
-		description: `Badge reprinted for ${participant.firstName} ${participant.familyName} (reprint #${participant.reprintCount + 1})`,
-		userId: user.id,
-		tenantId: participant.tenantId,
-		metadata: {
-			participant: {
-				id: participant.id,
-				name: `${participant.firstName} ${participant.familyName}`,
-				email: participant.email,
-				organization: participant.organization,
-				type: participant.participantType.name,
-			},
-			reprint: {
-				reprintNumber: participant.reprintCount + 1,
-				printedBy: user.id,
-				printedAt: new Date().toISOString(),
-			},
-			event: {
-				id: participant.step.workflow.event.id,
-				name: participant.step.workflow.event.name,
-			},
-			workflow: {
-				id: participant.step.workflow.id,
-				name: participant.step.workflow.name,
-			},
-		},
-	})
 
 	return redirectWithToast(`/printer/reprints`, {
 		type: 'success',
 		title: 'Badge Reprinted',
-		description: `Badge reprinted successfully for ${participant.firstName} ${participant.familyName} (reprint #${participant.reprintCount + 1}).`,
+		description: `Badge reprinted successfully for ${reprint.name} (reprint #${reprint.number}).`,
 	})
 }
 

@@ -1,10 +1,13 @@
 import { json, type LoaderFunctionArgs } from '@remix-run/node'
-import { Outlet, useLoaderData } from '@remix-run/react'
+import { Link, Outlet, useLoaderData, useLocation } from '@remix-run/react'
+import { ImagePlus } from 'lucide-react'
 import {
+	BoxSheetButton,
 	PrintBoxButton,
 	PrintSelectedButtons,
 } from '~/components/boxes/box-action'
 import { BoxBrowser } from '~/components/boxes/box-browser'
+import { Button } from '~/components/ui/button'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { loadPrinterView } from '~/utils/boxes.server'
 
@@ -15,6 +18,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function PrinterBoxesRoute() {
 	const view = useLoaderData<typeof loader>()
+	const { pathname, search } = useLocation()
 	return (
 		<>
 			<div className="space-y-6">
@@ -28,8 +32,30 @@ export default function PrinterBoxesRoute() {
 				<BoxBrowser
 					view={view}
 					viewer="printer"
-					headerControls={box => <PrintBoxButton box={box} size="default" />}
-					partAction={(box, part) => <PrintBoxButton box={box} part={part} />}
+					headerControls={box => (
+						<>
+							<BoxSheetButton box={box} size="default" />
+							<PrintBoxButton box={box} size="default" />
+						</>
+					)}
+					partAction={(box, part) => (
+						<span className="flex gap-1.5">
+							<BoxSheetButton box={box} part={part} />
+							<PrintBoxButton box={box} part={part} />
+						</span>
+					)}
+					memberActions={(_, m) =>
+						m.problems?.noPhoto ? (
+							<Button size="sm" variant="outline" asChild>
+								<Link
+									to={`/printer/requests/${m.id}/edit-photo?${new URLSearchParams({ redirectTo: pathname + search })}`}
+								>
+									<ImagePlus className="mr-1.5 h-4 w-4" aria-hidden />
+									Add photo
+								</Link>
+							</Button>
+						) : null
+					}
 					selectionAction={(box, ids, clear) => (
 						<PrintSelectedButtons box={box} ids={ids} clear={clear} />
 					)}

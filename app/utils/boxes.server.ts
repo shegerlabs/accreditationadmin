@@ -6,6 +6,8 @@ import {
 	type RequestStatus,
 } from '@prisma/client'
 import { auditRequest } from './audit.server'
+import { type BadgeProblems } from './batch-print'
+import { loadBadgeProblems } from './batch-print.server'
 import { getUserAccessibleStepInfo } from './auth.server'
 import {
 	assignBoxes,
@@ -299,6 +301,7 @@ export function buildView({
 	partKey,
 	typeName,
 	visible = null,
+	problems = {},
 }: {
 	viewer: BoxViewer
 	boxes: LoadedBox[]
@@ -310,7 +313,20 @@ export function buildView({
 	typeName: (id: string) => string
 	/** Printers only see participants of the types they're assigned to. */
 	visible?: Visible | null
+	/** Badges that would come out wrong, by participant id. */
+	problems?: Record<string, BadgeProblems>
 }): BoxesView {
+	// Printers can only act on people at their desk; admins can fix early.
+	const problemOf = (m: ServerPerson) =>
+		(
+			viewer === 'printer'
+				? m.stage === 'print'
+				: m.stage !== 'printed' && m.stage !== 'collected'
+		)
+			? (problems[m.id] ?? null)
+			: null
+	const needsFixing = (ms: ServerPerson[]) =>
+		ms.filter(m => problemOf(m)).length
 	const readyIn = (box: LoadedBox, ms: ServerPerson[]) =>
 		readiness
 			? ms.filter(m => readiness(m, box.id, placements) === 'ready')
@@ -399,6 +415,7 @@ export function buildView({
 			stages: countStages(scope),
 			readyPeople: ready.map(toReady),
 			waiting,
+			needsFixing: needsFixing(scope),
 			lockedHere: scope.filter(m => placements[m.id]?.boxId === box.id).length,
 			lockedInBox: members.filter(m => placements[m.id]?.boxId === box.id)
 				.length,
@@ -418,6 +435,7 @@ export function buildView({
 								manual: p.members.filter(m => reasons.get(m.id) === 'manual')
 									.length,
 								readyPeople: r.map(toReady),
+								needsFixing: needsFixing(p.members),
 							}
 						})
 					: null,
@@ -437,6 +455,7 @@ export function buildView({
 								stage: m.stage,
 								reason: reasons.get(m.id)!,
 								placedHere: placedHere(m),
+								problems: problemOf(m),
 							}),
 						)
 					: null,
@@ -502,6 +521,7 @@ export async function loadPrinterView(userId: string, url: URL) {
 		placements,
 		readiness,
 		visible,
+		problems: await loadBadgeProblems(people.filter(visible)),
 		boxId: url.searchParams.get('box'),
 		partKey: url.searchParams.get('part'),
 		typeName: id => names.get(id) ?? 'Unknown type',

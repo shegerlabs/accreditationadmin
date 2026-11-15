@@ -23,6 +23,7 @@ import {
 import { BoxBrowser } from '~/components/boxes/box-browser'
 import { auditRequest } from '~/utils/audit.server'
 import { requireAdminAccess } from '~/utils/auth.server'
+import { loadBadgeProblems } from '~/utils/batch-print.server'
 import {
 	isCatchAll,
 	matchesRule,
@@ -112,6 +113,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		people,
 		placements,
 		readiness: null,
+		problems: await loadBadgeProblems(people),
 		boxId: url.searchParams.get('box'),
 		partKey: url.searchParams.get('part'),
 		typeName: id => names.get(id) ?? 'Unknown type',
