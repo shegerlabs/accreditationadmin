@@ -112,6 +112,7 @@ export function BoxBrowser({
 												total={b.total}
 												ready={b.ready}
 												done={b.done}
+												archived={b.archived}
 											/>
 										</Link>
 										{boxAction?.(b, index)}
@@ -155,6 +156,7 @@ export function BoxBrowser({
 										total={b.total}
 										ready={b.ready}
 										done={b.done}
+										archived={b.archived}
 									/>
 								</Link>
 							)
@@ -290,21 +292,36 @@ export function partSearch(boxId: string, part: string | null) {
 	return `?${sp}`
 }
 
-/** Admins see the size; printers see their progress, and what's ready now. */
+/**
+ * Admins see the size, and whether the box is archived; printers see their
+ * progress, and what's ready now.
+ */
 function Count({
 	viewer,
 	total,
 	ready,
 	done,
+	archived,
 }: {
 	viewer: BoxViewer
 	total: number
 	ready: number
 	done: number
+	archived: boolean
 }) {
 	if (viewer === 'admin')
 		return (
-			<span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+			<span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
+				{archived && (
+					<span
+						className={cn(
+							'rounded px-1.5 py-0.5 font-medium',
+							STAGE_META.archived.pill,
+						)}
+					>
+						Archived
+					</span>
+				)}
 				{total}
 			</span>
 		)

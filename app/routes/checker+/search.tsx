@@ -1,6 +1,7 @@
 import { json, LoaderFunctionArgs } from '@remix-run/node'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
+import { ISSUED_STATUSES } from '~/utils/badge-status'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, ['checkpoint'])
@@ -19,7 +20,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				{ firstName: { contains: query, mode: 'insensitive' } },
 				{ familyName: { contains: query, mode: 'insensitive' } },
 			],
-			status: { in: ['PRINTED', 'COLLECTED'] },
+			status: { in: [...ISSUED_STATUSES] },
 		},
 		select: {
 			id: true,

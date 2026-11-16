@@ -1,4 +1,4 @@
-import { Action, RequestStatus } from '@prisma/client'
+import { Action } from '@prisma/client'
 import { json, LoaderFunctionArgs } from '@remix-run/node'
 import {
 	Link,
@@ -21,6 +21,7 @@ import { getCachedCountries } from '~/utils/cache.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { calculateSlaStatus } from '~/utils/sla'
+import { ISSUED_STATUSES } from '~/utils/badge-status'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, ['printer'])
@@ -48,7 +49,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		OR: [
 			{ stepId: { in: accessibleStepIds } },
 			{
-				status: { in: [RequestStatus.PRINTED, RequestStatus.COLLECTED] },
+				status: { in: [...ISSUED_STATUSES] },
 				approvals: {
 					some: { action: Action.PRINT, stepId: { in: accessibleStepIds } },
 				},

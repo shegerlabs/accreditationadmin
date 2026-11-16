@@ -42,7 +42,7 @@ export type ServerPerson = BoxPerson & {
 }
 
 /**
- * Status settles collected, printed and returned. Otherwise the current step
+ * Status settles archived, printed and returned. Otherwise the current step
  * decides: a print step, a validator's step, or else review (reviewer steps,
  * and any other step before print).
  */
@@ -50,7 +50,8 @@ function stageOf(
 	status: RequestStatus,
 	step: { action: Action; role: { name: string } },
 ): Stage {
-	if (status === 'COLLECTED' || status === 'ARCHIVED') return 'collected'
+	// COLLECTED is no longer set; older records count as archived.
+	if (status === 'COLLECTED' || status === 'ARCHIVED') return 'archived'
 	if (status === 'PRINTED') return 'printed'
 	if (status === 'REJECTED') return 'returned'
 	if (step.action === Action.PRINT) return 'print'
@@ -210,7 +211,7 @@ function printerReadiness({
 	const steps = new Set(stepIds)
 	const types = new Set(participantTypeIds)
 	return (p, boxId, placements) => {
-		if (p.stage === 'printed' || p.stage === 'collected') return 'done'
+		if (p.stage === 'printed' || p.stage === 'archived') return 'done'
 		if (
 			steps.has(p.stepId) &&
 			types.has(p.typeId) &&
@@ -321,7 +322,7 @@ export function buildView({
 		(
 			viewer === 'printer'
 				? m.stage === 'print'
-				: m.stage !== 'printed' && m.stage !== 'collected'
+				: m.stage !== 'printed' && m.stage !== 'archived'
 		)
 			? (problems[m.id] ?? null)
 			: null
@@ -365,6 +366,10 @@ export function buildView({
 			total: members.length,
 			ready: readyIn(box, members).length,
 			done: doneIn(box, members),
+			archived:
+				viewer === 'admin' &&
+				members.length > 0 &&
+				members.every(m => m.stage === 'archived'),
 			parts: parts.map(p => summarize(box, p)),
 		}
 	})
@@ -383,7 +388,7 @@ export function buildView({
 	// Reserved, but the badge was printed some other way (the print queue).
 	const printedOutside = (m: ServerPerson) =>
 		!placements[m.id]?.printed &&
-		(m.stage === 'printed' || m.stage === 'collected')
+		(m.stage === 'printed' || m.stage === 'archived')
 	const placedHere = (m: ServerPerson) => {
 		const p = placements[m.id]
 		if (p?.boxId !== box.id) return null
@@ -481,6 +486,12 @@ export function buildView({
 	}
 }
 
+/** Archiving is for admins; printers see an archived badge as printed. */
+const forPrinter = (people: ServerPerson[]) =>
+	people.map(p =>
+		p.stage === 'archived' ? { ...p, stage: 'printed' as const } : p,
+	)
+
 /**
  * A printer's events, and what they may see and print there. Like their print
  * queue, they only see participants of the types they're assigned to.
@@ -506,7 +517,7 @@ export async function loadPrinterView(userId: string, url: URL) {
 	const { eventIds, readiness, visible } = await printerAccess(userId)
 	const [boxes, people, placements, types] = await Promise.all([
 		loadBoxes({ eventId: { in: eventIds } }),
-		loadPeople(eventIds),
+		loadPeople(eventIds).then(forPrinter),
 		loadPlacements(eventIds),
 		prisma.participantType.findMany({
 			where: { events: { some: { eventId: { in: eventIds } } } },
@@ -546,7 +557,7 @@ export async function readyInBox(
 	if (!target) return null
 	const [boxes, people, placements] = await Promise.all([
 		loadBoxes({ eventId: target.eventId }),
-		loadPeople([target.eventId]),
+		loadPeople([target.eventId]).then(forPrinter),
 		loadPlacements([target.eventId]),
 	])
 	const box = boxes.find(b => b.id === boxId)
@@ -633,6 +644,112 @@ export async function printPeople({
 		})
 	}
 	return { done, skipped, failed }
+}
+
+/**
+ * Archive printed badges through the workflow engine, one person at a time, so
+ * each gets an approval in their history. Archiving changes the status only;
+ * the person stays at their step. Like printPeople, anyone someone else moved
+ * in the meantime is skipped, and any other error stops the run: `failed`
+ * counts the people never reached.
+ */
+export async function archivePeople({
+	request,
+	userId,
+	box,
+	scopeName,
+	people,
+}: {
+	request: Request
+	userId: string
+	box: LoadedBox
+	scopeName: string
+	people: ServerPerson[]
+}) {
+	let done = 0
+	let skipped = 0
+	let failed = 0
+	for (const [i, p] of people.entries()) {
+		try {
+			await processParticipant(
+				p.id,
+				userId,
+				Action.ARCHIVE,
+				`Badge archived with box "${scopeName}"`,
+				{ expectedStepId: p.stepId, expectedStatus: p.status },
+			)
+		} catch (error) {
+			if (isConflict(error)) {
+				skipped++
+				continue
+			}
+			console.error(
+				`Box archive "${scopeName}" stopped at ${p.id} after ${done} archived:`,
+				error,
+			)
+			failed = people.length - i
+			break
+		}
+		done++
+		await auditRequest({
+			request,
+			action: AuditAction.UPDATE,
+			entityType: AuditEntityType.PARTICIPANT,
+			entityId: p.id,
+			description: `Archived badge for ${p.firstName} ${p.familyName} with box "${scopeName}"`,
+			userId,
+			tenantId: p.tenantId,
+			metadata: {
+				box: { id: box.id, name: box.name, scope: scopeName },
+				beforeState: { stepId: p.stepId, status: p.status },
+				afterState: { stepId: p.stepId, status: 'ARCHIVED' },
+			},
+		})
+	}
+	return { done, skipped, failed }
+}
+
+/**
+ * Undo archiving: archived badges go back to Printed. There's no workflow
+ * action for this, so it's recorded in the audit log only.
+ */
+export async function unarchivePeople({
+	request,
+	userId,
+	box,
+	scopeName,
+	people,
+}: {
+	request: Request
+	userId: string
+	box: LoadedBox
+	scopeName: string
+	people: ServerPerson[]
+}) {
+	let done = 0
+	for (const p of people) {
+		const { count } = await prisma.participant.updateMany({
+			where: { id: p.id, status: 'ARCHIVED' },
+			data: { status: 'PRINTED' },
+		})
+		if (count === 0) continue
+		done++
+		await auditRequest({
+			request,
+			action: AuditAction.UPDATE,
+			entityType: AuditEntityType.PARTICIPANT,
+			entityId: p.id,
+			description: `Unarchived badge for ${p.firstName} ${p.familyName} with box "${scopeName}"`,
+			userId,
+			tenantId: p.tenantId,
+			metadata: {
+				box: { id: box.id, name: box.name, scope: scopeName },
+				beforeState: { stepId: p.stepId, status: 'ARCHIVED' },
+				afterState: { stepId: p.stepId, status: 'PRINTED' },
+			},
+		})
+	}
+	return { done, skipped: people.length - done }
 }
 
 function isConflict(error: unknown) {

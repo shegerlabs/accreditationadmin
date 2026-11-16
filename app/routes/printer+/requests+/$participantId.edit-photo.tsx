@@ -31,12 +31,7 @@ import {
 	DialogTitle,
 } from '~/components/ui/dialog'
 import { createId } from '@paralleldrive/cuid2'
-import {
-	Action,
-	AuditAction,
-	AuditEntityType,
-	RequestStatus,
-} from '@prisma/client'
+import { Action, AuditAction, AuditEntityType } from '@prisma/client'
 import { auditRequest } from '~/utils/audit.server'
 import {
 	getUserAccessibleStepIds,
@@ -49,6 +44,7 @@ import { getParticipantDocumentFileSrc, invariantResponse } from '~/utils/misc'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { uploadFile } from '~/utils/storage.server'
 import { redirectWithToast } from '~/utils/toast.server'
+import { ISSUED_STATUSES } from '~/utils/badge-status'
 
 /**
  * Where to go after saving or cancelling: back to the page that sent the
@@ -78,7 +74,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			OR: [
 				{ stepId: { in: accessibleStepIds } },
 				{
-					status: RequestStatus.PRINTED,
+					status: { in: [...ISSUED_STATUSES] },
 					approvals: {
 						some: { action: Action.PRINT, stepId: { in: accessibleStepIds } },
 					},
@@ -156,7 +152,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			OR: [
 				{ stepId: { in: accessibleStepIds } },
 				{
-					status: RequestStatus.PRINTED,
+					status: { in: [...ISSUED_STATUSES] },
 					approvals: {
 						some: { action: Action.PRINT, stepId: { in: accessibleStepIds } },
 					},

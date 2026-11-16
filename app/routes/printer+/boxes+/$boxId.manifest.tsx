@@ -66,7 +66,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			: g.label,
 		range: g.batch?.range ?? null,
 		notReady: g.members.filter(m => NOT_READY.includes(m.stage)).length,
-		collected: g.members.filter(m => m.stage === 'collected').length,
 		rows: sortPeople(g.members.filter(m => LISTED.includes(m.stage))).map(
 			m => ({
 				id: m.id,
@@ -156,11 +155,10 @@ function counts(sheet: Sheet) {
 	const printed = sheet.rows.filter(r => r.stage === 'printed').length
 	const awaiting = sheet.rows.length - printed
 	return {
-		total: sheet.rows.length + sheet.notReady + sheet.collected,
+		total: sheet.rows.length + sheet.notReady,
 		printed,
 		awaiting,
 		notReady: sheet.notReady,
-		collected: sheet.collected,
 	}
 }
 
@@ -171,7 +169,6 @@ function summary(sheet: Sheet) {
 		`${c.printed} printed`,
 		c.awaiting > 0 && `${c.awaiting} awaiting print`,
 		c.notReady > 0 && `${c.notReady} not ready yet (not listed)`,
-		c.collected > 0 && `${c.collected} already collected (not listed)`,
 	]
 		.filter(Boolean)
 		.join(' · ')
@@ -302,9 +299,7 @@ export default function BoxManifestDialog() {
 		`/printer/boxes?${sp}`,
 	)
 	const many = data.sheets.length > 1
-	const empty = data.sheets.every(
-		s => s.rows.length + s.notReady + s.collected === 0,
-	)
+	const empty = data.sheets.every(s => s.rows.length + s.notReady === 0)
 	const awaiting = data.sheets.reduce(
 		(n, s) => n + s.rows.filter(r => r.stage === 'print').length,
 		0,

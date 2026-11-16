@@ -14,6 +14,7 @@ import { useLoaderData } from '@remix-run/react'
 import { z } from 'zod'
 import {
 	AddPeopleButton,
+	ArchiveBoxButtons,
 	BoxEditorButton,
 	DeleteBoxButton,
 	LeftOutList,
@@ -33,12 +34,15 @@ import {
 	resolveBox,
 } from '~/utils/boxes'
 import {
+	archivePeople,
 	assign,
 	buildView,
 	findPeople,
 	loadBoxes,
 	loadPeople,
 	loadPlacements,
+	scopeBox,
+	unarchivePeople,
 } from '~/utils/boxes.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
@@ -180,6 +184,12 @@ const MoveSchema = z.object({
 	intent: z.literal('move'),
 	boxId: z.string().min(1),
 	direction: z.enum(['up', 'down']),
+})
+
+const ArchiveSchema = z.object({
+	intent: z.enum(['archive', 'unarchive']),
+	boxId: z.string().min(1),
+	part: z.string().optional(),
 })
 
 const DeleteSchema = z.object({
@@ -377,6 +387,88 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return json({ ok: true })
 	}
 
+	if (data.intent === 'archive' || data.intent === 'unarchive') {
+		const parsed = ArchiveSchema.safeParse(data)
+		if (!parsed.success)
+			return json(
+				{ error: 'Something was missing from the form.' },
+				{ status: 400 },
+			)
+		const { intent, boxId, part: partKey } = parsed.data
+		const [boxes, people, placements] = await Promise.all([
+			loadBoxes({ eventId: event.id }),
+			loadPeople([event.id]),
+			loadPlacements([event.id]),
+		])
+		const box = boxes.find(b => b.id === boxId)
+		invariantResponse(box, 'Box not found', { status: 404 })
+		const { part, scope } = scopeBox(
+			box,
+			people,
+			placements,
+			assign(boxes, people, placements),
+			partKey || null,
+		)
+		if (partKey && !part)
+			return json(
+				{ error: 'That smaller box has changed. Refresh the page.' },
+				{ status: 400 },
+			)
+		const name = part ? `${box.name} › ${part.label}` : box.name
+		// Worked out again here, so a stale page can't archive anyone who
+		// isn't printed, or unarchive anyone who isn't archived.
+		const archiving = intent === 'archive'
+		const targets = scope.filter(m =>
+			archiving ? m.status === 'PRINTED' : m.status === 'ARCHIVED',
+		)
+		if (targets.length === 0)
+			return json(
+				{
+					error: archiving
+						? 'Nobody in this box is printed and waiting to be archived.'
+						: 'Nobody in this box is archived.',
+				},
+				{ status: 400 },
+			)
+		const run = {
+			request,
+			userId: user.id,
+			box,
+			scopeName: name,
+			people: targets,
+		}
+		const { done, skipped, failed } = archiving
+			? await archivePeople(run)
+			: { ...(await unarchivePeople(run)), failed: 0 }
+		await audit(
+			AuditAction.UPDATE,
+			box.id,
+			`${archiving ? 'Archived' : 'Unarchived'} ${done} ${done === 1 ? 'badge' : 'badges'} in box "${name}"`,
+			{ participantIds: targets.map(t => t.id), skipped, failed },
+		)
+		const notPrinted = archiving
+			? scope.filter(m => m.stage !== 'printed' && m.stage !== 'archived')
+					.length
+			: 0
+		const description = [
+			name + '.',
+			skipped && `${skipped} skipped because someone else had changed them.`,
+			failed &&
+				`Something went wrong, so the last ${failed} weren’t archived. Archive the box again for them.`,
+			notPrinted &&
+				`${notPrinted} not printed yet ${notPrinted === 1 ? 'was' : 'were'} left as ${notPrinted === 1 ? 'it was' : 'they were'}.`,
+		]
+			.filter(Boolean)
+			.join(' ')
+		return redirectWithToast(back(box.id), {
+			type: failed ? 'error' : 'success',
+			title: archiving
+				? `${done} ${done === 1 ? 'badge' : 'badges'} archived`
+				: `${done} ${done === 1 ? 'badge' : 'badges'} back to Printed`,
+			description,
+		})
+	}
+
 	if (data.intent === 'delete') {
 		const parsed = DeleteSchema.safeParse(data)
 		if (!parsed.success)
@@ -563,6 +655,7 @@ export default function EventBoxesRoute() {
 				<div className="flex flex-wrap gap-2">
 					<AddPeopleButton box={box} />
 					<BoxEditorButton types={types} box={box} />
+					<ArchiveBoxButtons box={box} />
 					<DeleteBoxButton box={box} />
 				</div>
 			)}

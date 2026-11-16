@@ -1,4 +1,4 @@
-import { Action, RequestStatus } from '@prisma/client'
+import { Action } from '@prisma/client'
 import { json, LoaderFunctionArgs } from '@remix-run/node'
 import { Link, Outlet, useLoaderData, useSearchParams } from '@remix-run/react'
 import { format } from 'date-fns'
@@ -31,6 +31,7 @@ import {
 import { prisma } from '~/utils/db.server'
 import { getParticipantDocumentFileSrc, invariantResponse } from '~/utils/misc'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
+import { ISSUED_STATUSES, isIssued } from '~/utils/badge-status'
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, ['printer'])
@@ -46,7 +47,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			OR: [
 				{ stepId: { in: accessibleStepIds } },
 				{
-					status: { in: [RequestStatus.PRINTED, RequestStatus.COLLECTED] },
+					status: { in: [...ISSUED_STATUSES] },
 					approvals: {
 						some: { action: Action.PRINT, stepId: { in: accessibleStepIds } },
 					},
@@ -350,7 +351,7 @@ export default function PrinterParticipantProfile() {
 										Back
 									</Link>
 								</Button>
-								{(status === 'INPROGRESS' || status === 'PRINTED' || status === 'COLLECTED' || status === 'BYPASSED') && (
+								{(status === 'INPROGRESS' || status === 'BYPASSED' || isIssued(status)) && (
 									<Button size="sm" variant="default" asChild>
 										<Link to={`/printer/requests/${general.id}/badge${paramsSuffix}`}>
 											<EyeIcon className="mr-1.5 h-4 w-4" />
@@ -358,7 +359,7 @@ export default function PrinterParticipantProfile() {
 										</Link>
 									</Button>
 								)}
-								{status === 'PRINTED' && (
+								{isIssued(status) && (
 									<Button
 										size="sm"
 										variant="default"

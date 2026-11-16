@@ -14,6 +14,7 @@ import {
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
 import { getParticipantDocumentFileSrc } from '~/utils/misc'
+import { isIssued } from '~/utils/badge-status'
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, ['checkpoint'])
@@ -70,8 +71,7 @@ export default function CheckerHistoryDetail() {
 
 	const handleClose = () => navigate('/checker/history', { preventScrollReset: true })
 
-	const isValidStatus =
-		participant.status === 'PRINTED' || participant.status === 'COLLECTED'
+	const isValidStatus = isIssued(participant.status)
 
 	return (
 		<Dialog open onOpenChange={open => !open && handleClose()}>

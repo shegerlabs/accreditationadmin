@@ -4,6 +4,7 @@ import { auditRequest } from '~/utils/audit.server'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { getRevokedBadgeError, parseBadgeQr } from '~/utils/badge-qr'
 import { prisma } from '~/utils/db.server'
+import { isIssued } from '~/utils/badge-status'
 
 const DUPLICATE_WINDOW_MINUTES = 10
 
@@ -99,8 +100,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		return json({ ok: false, error: revokedError } as const)
 	}
 
-	// Check valid badge status (PRINTED or COLLECTED)
-	if (participant.status !== 'PRINTED' && participant.status !== 'COLLECTED') {
+	// Printed badges are valid, archived or not.
+	if (!isIssued(participant.status)) {
 		const error = `Badge status is ${participant.status}, not valid for entry`
 		await auditRequest({
 			request,

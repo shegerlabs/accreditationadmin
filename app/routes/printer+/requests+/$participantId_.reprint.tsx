@@ -1,6 +1,6 @@
 import { getFormProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
-import { Action, AuditAction, AuditEntityType, RequestStatus } from '@prisma/client'
+import { Action, AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
 import { Form, useActionData, useLoaderData, useNavigate, useParams } from '@remix-run/react'
 import { Printer, RefreshCw } from 'lucide-react'
@@ -42,6 +42,7 @@ import {
 } from '~/utils/misc'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { redirectWithToast } from '~/utils/toast.server'
+import { ISSUED_STATUSES, isIssued } from '~/utils/badge-status'
 
 const REPRINT_REASONS = [
 	{ value: 'Print quality issue', name: 'Print quality issue' },
@@ -116,7 +117,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	})
 
 	invariantResponse(participant, 'Participant not found', { status: 404 })
-	invariantResponse(participant.status === RequestStatus.PRINTED, 'Participant is not in PRINTED status', { status: 400 })
+	invariantResponse(isIssued(participant.status), 'This badge hasn’t been printed yet', { status: 400 })
 
 	const maxReprints = await getSetting<number>(SettingKeys.REPRINT_MAX_COUNT)
 	invariantResponse(participant.reprintCount < maxReprints, 'Reprint limit reached', { status: 400 })
@@ -197,7 +198,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		where: {
 			id: participantId,
 			deletedAt: null,
-			status: RequestStatus.PRINTED,
+			status: { in: [...ISSUED_STATUSES] },
 			approvals: {
 				some: { action: Action.PRINT, stepId: { in: accessibleStepIds } },
 			},

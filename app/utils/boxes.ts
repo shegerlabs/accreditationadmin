@@ -12,7 +12,7 @@ export type Stage =
 	| 'validation'
 	| 'print'
 	| 'printed'
-	| 'collected'
+	| 'archived'
 	| 'returned'
 
 export const STAGES: Stage[] = [
@@ -20,7 +20,7 @@ export const STAGES: Stage[] = [
 	'validation',
 	'print',
 	'printed',
-	'collected',
+	'archived',
 	'returned',
 ]
 
@@ -50,8 +50,8 @@ export const STAGE_META: Record<
 		dot: 'bg-green-500',
 		pill: 'bg-green-100 text-green-800',
 	},
-	collected: {
-		label: 'Collected',
+	archived: {
+		label: 'Archived',
 		dot: 'bg-purple-500',
 		pill: 'bg-purple-100 text-purple-800',
 	},
@@ -661,7 +661,7 @@ export type PartSummary = {
 	batch: BatchInfo | null
 	total: number
 	ready: number
-	/** Already printed (or collected). */
+	/** Already printed (or archived). */
 	done: number
 	locked: number
 	frozen: boolean
@@ -676,6 +676,8 @@ export type BoxListItem = {
 	total: number
 	ready: number
 	done: number
+	/** Admins only: everyone in the box is archived. */
+	archived: boolean
 	parts: PartSummary[]
 }
 

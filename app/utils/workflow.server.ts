@@ -2,6 +2,7 @@ import {
 	Action,
 	type Participant,
 	type Prisma,
+	type RequestStatus,
 	type Step,
 } from '@prisma/client'
 import { json } from '@remix-run/node'
@@ -21,9 +22,12 @@ export async function processParticipant(
 		// has moved since (someone else acted while the page was open), refuse
 		// rather than apply the decision to a step they never reviewed.
 		expectedStepId?: string
+		// Likewise for the status, for actions that don't move the participant
+		// (archiving), where the step alone can't tell it was already done.
+		expectedStatus?: RequestStatus
 	} = {},
 ) {
-	const { participantReason, expectedStepId } = options
+	const { participantReason, expectedStepId, expectedStatus } = options
 	const participant = await prisma.participant.findUniqueOrThrow({
 		where: { id: participantId },
 		include: {
@@ -31,7 +35,10 @@ export async function processParticipant(
 		},
 	})
 
-	if (expectedStepId && expectedStepId !== participant.stepId) {
+	if (
+		(expectedStepId && expectedStepId !== participant.stepId) ||
+		(expectedStatus && expectedStatus !== participant.status)
+	) {
 		throw json(PARTICIPANT_CONFLICT_MESSAGE, { status: 409 })
 	}
 

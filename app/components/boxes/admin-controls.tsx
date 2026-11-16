@@ -1,6 +1,8 @@
 import { useFetcher, useLocation, useParams } from '@remix-run/react'
 import type { BoxSplit } from '@prisma/client'
 import {
+	Archive,
+	ArchiveRestore,
 	ArrowDown,
 	ArrowUp,
 	Check,
@@ -503,6 +505,128 @@ function BoxEditorDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	)
+}
+
+/** The open smaller box, or the whole box. */
+function scopeName(box: SelectedBox) {
+	if (!box.part) return box.name
+	const { batch, label } = box.part
+	return `${box.name} › ${batch ? `Box ${batch.index} of ${batch.of}` : label}`
+}
+
+const badges = (n: number) => `${n} ${n === 1 ? 'badge' : 'badges'}`
+
+/**
+ * Archive the printed badges in the open box (or smaller box), or undo it.
+ * Archiving is bookkeeping: archived badges still pass the checkpoint and can
+ * still be reprinted.
+ */
+export function ArchiveBoxButtons({ box }: { box: SelectedBox }) {
+	const printed = box.stages.printed
+	const archived = box.stages.archived
+	const notPrinted = box.total - printed - archived
+	return (
+		<>
+			{printed > 0 && (
+				<ArchiveDialog
+					box={box}
+					intent="archive"
+					trigger={
+						<>
+							<Archive className="mr-1.5 h-4 w-4" aria-hidden="true" />
+							Archive {printed} printed
+						</>
+					}
+					title={`Archive ${badges(printed)}?`}
+					description={
+						<>
+							{scopeName(box)}. Their status changes to Archived. The badges
+							stay valid: they still pass the checkpoint, and printers can still
+							reprint them.
+							{notPrinted > 0 &&
+								` ${notPrinted} not printed yet ${notPrinted === 1 ? 'is' : 'are'} left as ${notPrinted === 1 ? 'it is' : 'they are'}; archive the box again once they’re printed.`}
+						</>
+					}
+					submit="Archive"
+					busyLabel="Archiving…"
+				/>
+			)}
+			{archived > 0 && (
+				<ArchiveDialog
+					box={box}
+					intent="unarchive"
+					trigger={
+						<>
+							<ArchiveRestore className="mr-1.5 h-4 w-4" aria-hidden="true" />
+							Unarchive
+						</>
+					}
+					title={`Unarchive ${badges(archived)}?`}
+					description={
+						<>{scopeName(box)}. Their status goes back to Printed.</>
+					}
+					submit="Unarchive"
+					busyLabel="Unarchiving…"
+				/>
+			)}
+		</>
+	)
+}
+
+function ArchiveDialog({
+	box,
+	intent,
+	trigger,
+	title,
+	description,
+	submit,
+	busyLabel,
+}: {
+	box: SelectedBox
+	intent: 'archive' | 'unarchive'
+	trigger: React.ReactNode
+	title: string
+	description: React.ReactNode
+	submit: string
+	busyLabel: string
+}) {
+	const [open, setOpen] = React.useState(false)
+	const fetcher = useFetcher<{ error?: string }>()
+	const here = useHere()
+	const close = React.useCallback(() => setOpen(false), [])
+	const busy = useCloseOnSuccess(fetcher, close)
+	const formId = `${intent}-box-${box.id}`
+	return (
+		<>
+			<Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+				{trigger}
+			</Button>
+			<Dialog open={open} onOpenChange={o => !busy && setOpen(o)}>
+				<DialogContent className="sm:max-w-md">
+					<DialogHeader>
+						<DialogTitle>{title}</DialogTitle>
+						<DialogDescription className="break-words">
+							{description}
+						</DialogDescription>
+					</DialogHeader>
+					<fetcher.Form method="POST" action={here} id={formId}>
+						<Hidden
+							fields={{ intent, boxId: box.id, part: box.part?.key ?? '' }}
+						/>
+					</fetcher.Form>
+					<FormError error={fetcher.data?.error} />
+					<DialogFooter>
+						<Button variant="outline" onClick={close} disabled={busy}>
+							Cancel
+						</Button>
+						<Button type="submit" form={formId} disabled={busy}>
+							{busy ? busyLabel : submit}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</>
 	)
 }
 

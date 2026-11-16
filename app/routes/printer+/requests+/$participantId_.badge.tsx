@@ -1,6 +1,6 @@
 import { getFormProps, useForm } from '@conform-to/react'
 import { getZodConstraint, parseWithZod } from '@conform-to/zod'
-import { Action, AuditAction, AuditEntityType, RequestStatus } from '@prisma/client'
+import { Action, AuditAction, AuditEntityType } from '@prisma/client'
 import { ActionFunctionArgs, json, LoaderFunctionArgs } from '@remix-run/node'
 import { Form, useActionData, useLoaderData, useParams } from '@remix-run/react'
 import { Printer } from 'lucide-react'
@@ -40,6 +40,7 @@ import {
 } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
 import { processParticipant } from '~/utils/workflow.server'
+import { ISSUED_STATUSES } from '~/utils/badge-status'
 
 export const ParticipantPrintSchema = z.object({
 	id: z.string().optional(),
@@ -94,7 +95,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	// Build where clause: use step-based if available, otherwise fall back to role-based
 	const stepFilter =
 		accessibleStepIds.length > 0
-			? { OR: [{ stepId: { in: accessibleStepIds } }, { status: { in: [RequestStatus.PRINTED, RequestStatus.COLLECTED] }, approvals: { some: { action: Action.PRINT, stepId: { in: accessibleStepIds } } } }] }
+			? { OR: [{ stepId: { in: accessibleStepIds } }, { status: { in: [...ISSUED_STATUSES] }, approvals: { some: { action: Action.PRINT, stepId: { in: accessibleStepIds } } } }] }
 			: { step: { roleId: { in: userRoles.roles.map(role => role.id) } } }
 
 	const participant = await prisma.participant.findFirst({
@@ -149,7 +150,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Build where clause: use step-based if available, otherwise fall back to role-based
 	const stepFilter =
 		accessibleStepIds.length > 0
-			? { OR: [{ stepId: { in: accessibleStepIds } }, { status: { in: [RequestStatus.PRINTED, RequestStatus.COLLECTED] }, approvals: { some: { action: Action.PRINT, stepId: { in: accessibleStepIds } } } }] }
+			? { OR: [{ stepId: { in: accessibleStepIds } }, { status: { in: [...ISSUED_STATUSES] }, approvals: { some: { action: Action.PRINT, stepId: { in: accessibleStepIds } } } }] }
 			: { step: { roleId: { in: userRoles.roles.map(role => role.id) } } }
 
 	const { participantId } = params

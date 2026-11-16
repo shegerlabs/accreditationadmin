@@ -21,7 +21,7 @@ import {
 } from '~/components/ui/dialog'
 import { Label } from '~/components/ui/label'
 import { StatusButton } from '~/components/ui/status-button'
-import { Action, RequestStatus } from '@prisma/client'
+import { Action } from '@prisma/client'
 import {
 	getUserAccessibleStepIds,
 	requireUserWithRoles,
@@ -33,6 +33,7 @@ import { invariantResponse } from '~/utils/misc'
 import { type QuotaUsageInfo, getQuotaUsage, validateQuotaForTypeChange } from '~/utils/quota.server'
 import { redirectWithToast } from '~/utils/toast.server'
 import { reassignParticipantStep } from '~/utils/workflow.server'
+import { ISSUED_STATUSES } from '~/utils/badge-status'
 
 const EditDetailsSchema = z.object({
 	participantTypeId: z.string().min(1, 'Participant type is required'),
@@ -54,7 +55,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			OR: [
 				{ stepId: { in: accessibleStepIds } },
 				{
-					status: RequestStatus.PRINTED,
+					status: { in: [...ISSUED_STATUSES] },
 					approvals: {
 						some: { action: Action.PRINT, stepId: { in: accessibleStepIds } },
 					},
@@ -141,7 +142,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			OR: [
 				{ stepId: { in: accessibleStepIds } },
 				{
-					status: RequestStatus.PRINTED,
+					status: { in: [...ISSUED_STATUSES] },
 					approvals: {
 						some: { action: Action.PRINT, stepId: { in: accessibleStepIds } },
 					},
