@@ -68,6 +68,15 @@ export async function processParticipant(
 
 	await prisma.$transaction(async tx => {
 		if (outcome.data) {
+			// The target step may have been retired or deleted since we read the
+			// participant's step. FOR SHARE waits for a removal in progress.
+			const target = await tx.$queryRaw<{ id: string }[]>`
+				SELECT id FROM "Step"
+				WHERE id = ${outcome.data.stepId} AND "retiredAt" IS NULL
+				FOR SHARE`
+			if (target.length === 0) {
+				throw json(PARTICIPANT_CONFLICT_MESSAGE, { status: 409 })
+			}
 			// Only update if nobody moved the participant since we read it.
 			// Without this, two users acting at once (or one on a stale page)
 			// both advance the participant and it skips a step.
@@ -115,6 +124,7 @@ async function handleBypass(
 		where: {
 			workflowId: participant.step.workflowId,
 			isBypassTarget: true,
+			retiredAt: null,
 		},
 	})
 
@@ -137,6 +147,7 @@ async function handleRejection(
 		where: {
 			workflowId: participant.step.workflowId,
 			isRejectionTarget: true,
+			retiredAt: null,
 		},
 	})
 
@@ -246,6 +257,7 @@ export async function reassignParticipantStep(
 		where: {
 			workflowId: workflow.id,
 			name: participant.step.name,
+			retiredAt: null,
 		},
 		select: { id: true },
 	})

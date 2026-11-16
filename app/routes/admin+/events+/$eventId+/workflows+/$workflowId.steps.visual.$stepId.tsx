@@ -25,7 +25,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 	const { stepId } = params
 
-	const step = await prisma.step.findUnique({
+	const step = await prisma.step.findFirst({
 		select: {
 			id: true,
 			name: true,
@@ -43,7 +43,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 				select: { name: true },
 			},
 		},
-		where: { id: stepId },
+		where: { id: stepId, retiredAt: null },
 	})
 
 	invariantResponse(step, 'Not Found', { status: 404 })

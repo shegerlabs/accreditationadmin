@@ -46,7 +46,10 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const { participantId } = params
 
 	// Get step IDs the user has access to via UserEventAccess
-	const accessibleStepIds = await getUserAccessibleStepIds(user.id, ['validator', 'reviewer'])
+	const accessibleStepIds = await getUserAccessibleStepIds(user.id, [
+		'validator',
+		'reviewer',
+	])
 	const stepFilter = { stepId: { in: accessibleStepIds } }
 
 	const participant = await prisma.participant.findUnique({
@@ -181,6 +184,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			NOTIFY: 'Notified',
 			ARCHIVE: 'Archived',
 			BYPASS: 'Bypassed',
+			MOVE: 'Moved by admin',
 		}
 		return labels[action] || action
 	}
@@ -261,7 +265,10 @@ export async function action({ request }: ActionFunctionArgs) {
 	const { id: participantId } = submission.value
 
 	// Get step IDs the user has access to via UserEventAccess
-	const accessibleStepIds = await getUserAccessibleStepIds(user.id, ['validator', 'reviewer'])
+	const accessibleStepIds = await getUserAccessibleStepIds(user.id, [
+		'validator',
+		'reviewer',
+	])
 	const stepFilter = { stepId: { in: accessibleStepIds } }
 
 	const participant = await prisma.participant.findUnique({
@@ -394,7 +401,9 @@ export default function ParticipantProfile() {
 								{userHasRoles(user, ['validator', 'reviewer']) && (
 									<>
 										<Button size="sm" variant="default" asChild>
-											<Link to={`/validator/requests/${general.id}/approve${paramsSuffix}`}>
+											<Link
+												to={`/validator/requests/${general.id}/approve${paramsSuffix}`}
+											>
 												<CheckIcon className="mr-1.5 h-4 w-4" />
 												Approve
 											</Link>
@@ -405,7 +414,9 @@ export default function ParticipantProfile() {
 											className="shadow-md"
 											asChild
 										>
-											<Link to={`/validator/requests/${general.id}/reject${paramsSuffix}`}>
+											<Link
+												to={`/validator/requests/${general.id}/reject${paramsSuffix}`}
+											>
 												<XIcon className="mr-1.5 h-4 w-4" />
 												Reject
 											</Link>
@@ -457,7 +468,10 @@ export default function ParticipantProfile() {
 						{ label: 'Job Title', value: professional.jobTitle },
 						{ label: 'City', value: professional.city },
 						{ label: 'Country', value: professional.country },
-						{ label: 'Language', value: professional.preferredLanguage ?? 'N/A' },
+						{
+							label: 'Language',
+							value: professional.preferredLanguage ?? 'N/A',
+						},
 					]}
 				/>
 			</div>
@@ -520,10 +534,20 @@ export default function ParticipantProfile() {
 								<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100">
 									<Calendar className="h-4 w-4 text-slate-600" />
 								</div>
-								<span className="font-semibold text-slate-700">Accreditation Details</span>
+								<span className="font-semibold text-slate-700">
+									Accreditation Details
+								</span>
 							</div>
-							<Button size="sm" variant="outline" className="h-7 px-2" title="Edit Details" asChild>
-								<Link to={`/validator/requests/${general.id}/edit${paramsSuffix}`}>
+							<Button
+								size="sm"
+								variant="outline"
+								className="h-7 px-2"
+								title="Edit Details"
+								asChild
+							>
+								<Link
+									to={`/validator/requests/${general.id}/edit${paramsSuffix}`}
+								>
 									<Edit2Icon className="h-3.5 w-3.5" />
 								</Link>
 							</Button>
@@ -531,7 +555,10 @@ export default function ParticipantProfile() {
 						<div className="space-y-2">
 							<div className="flex justify-between text-sm">
 								<span className="text-slate-500">Participant Type</span>
-								<Badge variant="secondary" className="bg-emerald-50 text-emerald-700">
+								<Badge
+									variant="secondary"
+									className="bg-emerald-50 text-emerald-700"
+								>
 									{general.participantType}
 								</Badge>
 							</div>

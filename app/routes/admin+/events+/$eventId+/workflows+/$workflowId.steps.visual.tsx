@@ -13,7 +13,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Fetch all steps (unpaginated) for the visual builder
 	const steps = await prisma.step.findMany({
-		where: { workflowId },
+		where: { workflowId, retiredAt: null },
 		select: {
 			id: true,
 			name: true,
@@ -44,7 +44,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Get all steps for the "next step" dropdown (include action to filter REJECT/BYPASS)
 	const allSteps = await prisma.step.findMany({
-		where: { workflowId },
+		where: { workflowId, retiredAt: null },
 		select: { id: true, name: true, action: true },
 		orderBy: { order: 'asc' },
 	})

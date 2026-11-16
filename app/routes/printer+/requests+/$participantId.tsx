@@ -177,6 +177,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			NOTIFY: 'Notified',
 			ARCHIVE: 'Archived',
 			BYPASS: 'Bypassed',
+			MOVE: 'Moved by admin',
 		}
 		return labels[action] || action
 	}
@@ -351,9 +352,13 @@ export default function PrinterParticipantProfile() {
 										Back
 									</Link>
 								</Button>
-								{(status === 'INPROGRESS' || status === 'BYPASSED' || isIssued(status)) && (
+								{(status === 'INPROGRESS' ||
+									status === 'BYPASSED' ||
+									isIssued(status)) && (
 									<Button size="sm" variant="default" asChild>
-										<Link to={`/printer/requests/${general.id}/badge${paramsSuffix}`}>
+										<Link
+											to={`/printer/requests/${general.id}/badge${paramsSuffix}`}
+										>
 											<EyeIcon className="mr-1.5 h-4 w-4" />
 											View Badge
 										</Link>
@@ -368,7 +373,9 @@ export default function PrinterParticipantProfile() {
 										asChild={reprintCount < maxReprints}
 									>
 										{reprintCount < maxReprints ? (
-											<Link to={`/printer/requests/${general.id}/reprint${paramsSuffix}`}>
+											<Link
+												to={`/printer/requests/${general.id}/reprint${paramsSuffix}`}
+											>
 												<RefreshCw className="mr-1.5 h-4 w-4" />
 												Reprint ({reprintCount}/{maxReprints})
 											</Link>
@@ -425,7 +432,10 @@ export default function PrinterParticipantProfile() {
 						{ label: 'Job Title', value: professional.jobTitle },
 						{ label: 'City', value: professional.city },
 						{ label: 'Country', value: professional.country },
-						{ label: 'Language', value: professional.preferredLanguage ?? 'N/A' },
+						{
+							label: 'Language',
+							value: professional.preferredLanguage ?? 'N/A',
+						},
 					]}
 				/>
 			</div>
@@ -469,7 +479,9 @@ export default function PrinterParticipantProfile() {
 														title="Edit Photo"
 														asChild
 													>
-														<Link to={`/printer/requests/${general.id}/edit-photo${paramsSuffix}`}>
+														<Link
+															to={`/printer/requests/${general.id}/edit-photo${paramsSuffix}`}
+														>
 															<Edit2Icon className="h-3.5 w-3.5" />
 														</Link>
 													</Button>
@@ -503,7 +515,9 @@ export default function PrinterParticipantProfile() {
 								<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100">
 									<Calendar className="h-4 w-4 text-slate-600" />
 								</div>
-								<span className="font-semibold text-slate-700">Accreditation Details</span>
+								<span className="font-semibold text-slate-700">
+									Accreditation Details
+								</span>
 							</div>
 							<Button
 								size="sm"
@@ -512,7 +526,9 @@ export default function PrinterParticipantProfile() {
 								title="Edit Details"
 								asChild
 							>
-								<Link to={`/printer/requests/${general.id}/edit${paramsSuffix}`}>
+								<Link
+									to={`/printer/requests/${general.id}/edit${paramsSuffix}`}
+								>
 									<Edit2Icon className="h-3.5 w-3.5" />
 								</Link>
 							</Button>

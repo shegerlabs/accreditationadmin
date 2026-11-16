@@ -217,6 +217,20 @@ export function AccessEditor({
 	const userResults = userFetcher.data?.users ?? []
 	const isSearching = userFetcher.state === 'loading'
 
+	// Access is granted per step name, so only participant types whose
+	// workflow has a step of that name can be granted. The others are shown
+	// but disabled, instead of being silently skipped on save.
+	const [stepName, setStepName] = useState(existingStepName ?? '')
+	const typesWithStep = (name: string) =>
+		new Set(
+			workflows
+				.filter(w => w.steps.some(s => s.name === name))
+				.map(w => w.participantType.id),
+		)
+	const availableTypeIds = stepName
+		? typesWithStep(stepName)
+		: new Set(participantTypes.map(pt => pt.id))
+
 	// Participant type selection state - initialize based on existing data in edit mode
 	const [participantTypeSelection, setParticipantTypeSelection] = useState<
 		'all' | 'some'
@@ -226,8 +240,11 @@ export function AccessEditor({
 			existingParticipantTypeIds &&
 			existingParticipantTypeIds.length > 0
 		) {
-			// If existing types match all available types, select 'all'
-			if (existingParticipantTypeIds.length === participantTypes.length) {
+			// If existing types cover every type that has the step, select 'all'
+			const available = existingStepName
+				? typesWithStep(existingStepName)
+				: new Set(participantTypes.map(pt => pt.id))
+			if (existingParticipantTypeIds.length >= available.size) {
 				return 'all'
 			}
 			return 'some'
@@ -237,6 +254,9 @@ export function AccessEditor({
 	const [selectedParticipantTypeIds, setSelectedParticipantTypeIds] = useState<
 		string[]
 	>(existingParticipantTypeIds ?? [])
+	const effectiveSelectedIds = selectedParticipantTypeIds.filter(id =>
+		availableTypeIds.has(id),
+	)
 
 	// Determine which schema to use based on intent
 	const getSchema = () => {
@@ -572,6 +592,23 @@ export function AccessEditor({
 									)}
 								</Field>
 
+								{/* Step Selection by Name */}
+								<Field>
+									<Label htmlFor={fields.stepName.id}>Step</Label>
+									<SelectField
+										meta={fields.stepName}
+										items={assignableStepNames.map(name => ({
+											name: name,
+											value: name,
+										}))}
+										placeholder="Select a step"
+										onValueChange={setStepName}
+									/>
+									{fields.stepName.errors && (
+										<FieldError>{fields.stepName.errors}</FieldError>
+									)}
+								</Field>
+
 								{/* Participant Type Selection - Radio */}
 								<Field>
 									<Label>Participant Types</Label>
@@ -585,7 +622,10 @@ export function AccessEditor({
 										<div className="flex items-center space-x-2">
 											<RadioGroupItem value="all" id="pt-all" />
 											<Label htmlFor="pt-all" className="font-normal">
-												All Participant Types ({participantTypes.length})
+												{stepName &&
+												availableTypeIds.size < participantTypes.length
+													? `All participant types with this step (${availableTypeIds.size} of ${participantTypes.length})`
+													: `All Participant Types (${participantTypes.length})`}
 											</Label>
 										</div>
 										<div className="flex items-center space-x-2">
@@ -606,17 +646,17 @@ export function AccessEditor({
 										<div className="mt-3">
 											<div className="mb-2 flex items-center justify-between">
 												<span className="text-sm text-muted-foreground">
-													{selectedParticipantTypeIds.length} of{' '}
-													{participantTypes.length} selected
+													{effectiveSelectedIds.length} of{' '}
+													{availableTypeIds.size} selected
 												</span>
 												<div className="flex items-center gap-2 text-sm">
 													<button
 														type="button"
 														className="text-primary hover:underline"
 														onClick={() =>
-															setSelectedParticipantTypeIds(
-																participantTypes.map(pt => pt.id),
-															)
+															setSelectedParticipantTypeIds([
+																...availableTypeIds,
+															])
 														}
 													>
 														Select all
@@ -632,36 +672,47 @@ export function AccessEditor({
 												</div>
 											</div>
 											<div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
-												{participantTypes.map(pt => (
-													<div
-														key={pt.id}
-														className="flex items-center space-x-2"
-													>
-														<Checkbox
-															id={`pt-${pt.id}`}
-															checked={selectedParticipantTypeIds.includes(
-																pt.id,
-															)}
-															onCheckedChange={() =>
-																handleParticipantTypeToggle(pt.id)
-															}
-														/>
-														<Label
-															htmlFor={`pt-${pt.id}`}
-															className="font-normal"
+												{participantTypes.map(pt => {
+													const available = availableTypeIds.has(pt.id)
+													return (
+														<div
+															key={pt.id}
+															className="flex items-center space-x-2"
 														>
-															{pt.name}
-														</Label>
-														<input
-															type="hidden"
-															name="participantTypeIds"
-															value={pt.id}
-															disabled={
-																!selectedParticipantTypeIds.includes(pt.id)
-															}
-														/>
-													</div>
-												))}
+															<Checkbox
+																id={`pt-${pt.id}`}
+																disabled={!available}
+																checked={
+																	available &&
+																	selectedParticipantTypeIds.includes(pt.id)
+																}
+																onCheckedChange={() =>
+																	handleParticipantTypeToggle(pt.id)
+																}
+															/>
+															<Label
+																htmlFor={`pt-${pt.id}`}
+																className={`font-normal ${available ? '' : 'text-muted-foreground'}`}
+															>
+																{pt.name}
+																{!available && (
+																	<span className="ml-1 text-xs">
+																		· no “{stepName}” step
+																	</span>
+																)}
+															</Label>
+															<input
+																type="hidden"
+																name="participantTypeIds"
+																value={pt.id}
+																disabled={
+																	!available ||
+																	!selectedParticipantTypeIds.includes(pt.id)
+																}
+															/>
+														</div>
+													)
+												})}
 												{participantTypes.length === 0 && (
 													<p className="text-sm text-muted-foreground">
 														No participant types found
@@ -671,33 +722,11 @@ export function AccessEditor({
 										</div>
 									)}
 									{participantTypeSelection === 'some' &&
-										selectedParticipantTypeIds.length === 0 && (
+										effectiveSelectedIds.length === 0 && (
 											<p className="mt-1 text-sm text-destructive">
 												Please select at least one participant type
 											</p>
 										)}
-								</Field>
-
-								{/* Step Selection by Name */}
-								<Field>
-									<Label htmlFor={fields.stepName.id}>Step</Label>
-									<SelectField
-										meta={fields.stepName}
-										items={assignableStepNames.map(name => ({
-											name: name,
-											value: name,
-										}))}
-										placeholder="Select a step"
-									/>
-									<p className="mt-1 text-xs text-muted-foreground">
-										Access will be granted for this step across{' '}
-										{participantTypeSelection === 'all'
-											? 'all participant types'
-											: `${selectedParticipantTypeIds.length} selected participant type(s)`}
-									</p>
-									{fields.stepName.errors && (
-										<FieldError>{fields.stepName.errors}</FieldError>
-									)}
 								</Field>
 							</div>
 						)}

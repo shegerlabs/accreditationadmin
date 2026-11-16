@@ -33,7 +33,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	invariantResponse(workflow, 'Not Found', { status: 404 })
 
 	const steps = await prisma.step.findMany({
-		where: { workflowId },
+		where: { workflowId, retiredAt: null },
 		select: { id: true, name: true, action: true },
 		orderBy: { order: 'asc' },
 	})

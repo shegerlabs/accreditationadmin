@@ -85,6 +85,13 @@ const ACTION_STYLES: Record<
 		borderColor: 'border-amber-400',
 		iconColor: 'text-amber-600',
 	},
+	// Only ever an approval's action, never a step's; here to satisfy the Record.
+	MOVE: {
+		icon: RefreshCw,
+		bgColor: 'bg-slate-50',
+		borderColor: 'border-slate-400',
+		iconColor: 'text-slate-600',
+	},
 }
 
 interface StepNodeProps {
@@ -125,7 +132,7 @@ export const StepNode = memo(({ data, selected }: StepNodeProps) => {
 					<div className={cn('rounded-md p-1.5', style.bgColor)}>
 						<Icon className={cn('h-4 w-4', style.iconColor)} />
 					</div>
-					<span className="flex-1 font-medium text-sm truncate">
+					<span className="flex-1 truncate text-sm font-medium">
 						{data.name}
 					</span>
 					<Badge

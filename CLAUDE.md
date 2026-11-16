@@ -23,9 +23,10 @@ npm run typecheck        # TypeScript type checking
 npm run lint             # ESLint with caching
 npm run format           # Prettier formatting
 
-# Database
-npx prisma migrate dev   # Run migrations in development
-npx prisma db push       # Push schema changes (dev only)
+# Database (see docs/runbooks/database-migrations.md)
+npx prisma migrate dev --name <change>   # Create + apply a migration locally
+npx prisma migrate deploy                # Apply migrations in production
+# Never `db push` against production
 npx prisma studio        # Open Prisma Studio GUI
 npx tsx prisma/seed.ts   # Seed database
 
@@ -143,6 +144,17 @@ Route file naming patterns:
 - `processParticipant()` is the core function that executes workflow actions
 - Actions execute first, then approval is logged (ensures consistency)
 - Throws errors if rejection/bypass targets aren't configured
+
+#### Changing a Live Workflow
+
+Steps holding participants or approvals can't be deleted (`NO ACTION` foreign
+keys). Use `app/utils/step-lifecycle.server.ts`: **Move participants** (bulk,
+records a `MOVE` approval), **Remove step** (relinks predecessors; deletes if no
+history, otherwise sets `Step.retiredAt` and saves its place in
+`Step.retiredLinks`), **Restore** (puts it back from `retiredLinks`). Queries
+that list steps for building, picking or granting access must filter
+`retiredAt: null`. See
+`docs/decisions/2026-11-16-changing-workflows-mid-event.md`.
 
 #### Visual Workflow Builder
 

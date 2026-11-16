@@ -24,27 +24,36 @@ export async function getParticipantSummaryData(
 	tenantFilter: TenantFilter,
 	filters: ReportFilters,
 ) {
-	const { eventId, participantTypeId, countryId, status, startDate, endDate } = filters
+	const { eventId, participantTypeId, countryId, status, startDate, endDate } =
+		filters
 
 	// Filter out "all" values which come from the dropdown
 	const effectiveEventId = eventId && eventId !== 'all' ? eventId : undefined
-	const effectiveParticipantTypeId = participantTypeId && participantTypeId !== 'all' ? participantTypeId : undefined
-	const effectiveCountryId = countryId && countryId !== 'all' ? countryId : undefined
-	const effectiveStatus = status && status !== ('all' as never) ? status : undefined
+	const effectiveParticipantTypeId =
+		participantTypeId && participantTypeId !== 'all'
+			? participantTypeId
+			: undefined
+	const effectiveCountryId =
+		countryId && countryId !== 'all' ? countryId : undefined
+	const effectiveStatus =
+		status && status !== ('all' as never) ? status : undefined
 
 	const whereClause: Prisma.ParticipantWhereInput = {
 		...tenantFilter,
 		deletedAt: null,
 		...(effectiveEventId && { eventId: effectiveEventId }),
-		...(effectiveParticipantTypeId && { participantTypeId: effectiveParticipantTypeId }),
+		...(effectiveParticipantTypeId && {
+			participantTypeId: effectiveParticipantTypeId,
+		}),
 		...(effectiveCountryId && { nationalityId: effectiveCountryId }),
 		...(effectiveStatus && { status: effectiveStatus }),
-		...(startDate && endDate && {
-			createdAt: {
-				gte: startDate,
-				lte: endDate,
-			},
-		}),
+		...(startDate &&
+			endDate && {
+				createdAt: {
+					gte: startDate,
+					lte: endDate,
+				},
+			}),
 	}
 
 	// Get counts by status
@@ -184,12 +193,17 @@ export async function getParticipantSummaryData(
 	})
 
 	// Calculate completion metrics
-	const printedCount = statusCounts.find(s => s.status === 'PRINTED')?._count ?? 0
-	const collectedCount = statusCounts.find(s => s.status === 'COLLECTED')?._count ?? 0
-	const rejectedCount = statusCounts.find(s => s.status === 'REJECTED')?._count ?? 0
+	const printedCount =
+		statusCounts.find(s => s.status === 'PRINTED')?._count ?? 0
+	const collectedCount =
+		statusCounts.find(s => s.status === 'COLLECTED')?._count ?? 0
+	const rejectedCount =
+		statusCounts.find(s => s.status === 'REJECTED')?._count ?? 0
 	const completedCount = printedCount + collectedCount
-	const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
-	const rejectionRate = totalCount > 0 ? Math.round((rejectedCount / totalCount) * 100) : 0
+	const completionRate =
+		totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+	const rejectionRate =
+		totalCount > 0 ? Math.round((rejectedCount / totalCount) * 100) : 0
 
 	return {
 		summary: {
@@ -241,18 +255,21 @@ export async function getWorkflowPerformanceData(
 
 	// Get approvals with step info for processing time calculation
 	const approvalWhereClause: Prisma.ApprovalWhereInput = {
+		// Admin moves aren't decisions made at the step.
+		action: { not: 'MOVE' },
 		step: {
 			workflow: {
 				...(effectiveEventId && { eventId: effectiveEventId }),
 				...(tenantFilter.tenantId && { tenantId: tenantFilter.tenantId }),
 			},
 		},
-		...(startDate && endDate && {
-			createdAt: {
-				gte: startDate,
-				lte: endDate,
-			},
-		}),
+		...(startDate &&
+			endDate && {
+				createdAt: {
+					gte: startDate,
+					lte: endDate,
+				},
+			}),
 	}
 
 	// Get approval/rejection rates by step
@@ -288,6 +305,7 @@ export async function getWorkflowPerformanceData(
 				a."stepId" as step_id,
 				a."participantId",
 				a."createdAt",
+				a.action,
 				LAG(a."createdAt") OVER (
 					PARTITION BY a."participantId"
 					ORDER BY a."createdAt"
@@ -302,7 +320,9 @@ export async function getWorkflowPerformanceData(
 			step_id,
 			AVG(EXTRACT(EPOCH FROM ("createdAt" - prev_approval_time)) / 60)::float as avg_time_minutes
 		FROM approval_times
-		WHERE prev_approval_time IS NOT NULL
+		-- MOVE rows stay in the CTE so the time before a move isn't counted
+		-- against the step the participant was moved to.
+		WHERE prev_approval_time IS NOT NULL AND action <> 'MOVE'
 		GROUP BY step_id
 	`
 
@@ -603,18 +623,20 @@ export async function getValidatorActivityData(
 	// Now get approval stats only for these validators
 	const approvalWhereClause: Prisma.ApprovalWhereInput = {
 		userId: { in: validatorUserIds },
+		action: { not: 'MOVE' },
 		step: {
 			workflow: {
 				...(effectiveEventId && { eventId: effectiveEventId }),
 				...(tenantFilter.tenantId && { tenantId: tenantFilter.tenantId }),
 			},
 		},
-		...(startDate && endDate && {
-			createdAt: {
-				gte: startDate,
-				lte: endDate,
-			},
-		}),
+		...(startDate &&
+			endDate && {
+				createdAt: {
+					gte: startDate,
+					lte: endDate,
+				},
+			}),
 	}
 
 	// Actions per validator

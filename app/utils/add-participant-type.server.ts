@@ -110,6 +110,7 @@ export async function loadAddTypeContext(
 				id: true,
 				participantTypeId: true,
 				steps: {
+					where: { retiredAt: null },
 					select: { name: true, role: { select: { name: true } } },
 					orderBy: { order: 'asc' },
 				},
@@ -379,7 +380,7 @@ export async function applyAddType(
 		// whatever an admin has set on them.
 		if (workflow) {
 			const steps = await tx.step.findMany({
-				where: { workflowId: workflow.id },
+				where: { workflowId: workflow.id, retiredAt: null },
 				select: {
 					id: true,
 					name: true,

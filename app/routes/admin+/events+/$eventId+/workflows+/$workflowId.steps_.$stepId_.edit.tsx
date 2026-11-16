@@ -22,7 +22,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 	invariantResponse(workflow, 'Not Found', { status: 404 })
 
-	const step = await prisma.step.findUnique({
+	const step = await prisma.step.findFirst({
 		select: {
 			id: true,
 			name: true,
@@ -37,14 +37,14 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			requiresAssignment: true,
 			slaDurationMinutes: true,
 		},
-		where: { id: stepId },
+		where: { id: stepId, retiredAt: null },
 	})
 
 	invariantResponse(step, 'Not Found', { status: 404 })
 
 	// Get all steps for this workflow to populate the nextStepId dropdown
 	const steps = await prisma.step.findMany({
-		where: { workflowId },
+		where: { workflowId, retiredAt: null },
 		select: { id: true, name: true },
 		orderBy: { order: 'asc' },
 	})

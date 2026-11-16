@@ -107,6 +107,7 @@ function getActionLabel(action: string) {
 		NOTIFY: 'Notified',
 		ARCHIVE: 'Archived',
 		BYPASS: 'Bypassed',
+		MOVE: 'Moved by admin',
 	}
 	return labels[action] || action
 }
@@ -197,7 +198,8 @@ export default function HistoryParticipantViewRoute() {
 			<DialogContent className="max-w-xl">
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
-						{participant.title?.name} {participant.firstName} {participant.familyName}
+						{participant.title?.name} {participant.firstName}{' '}
+						{participant.familyName}
 						{getStatusBadge(participant.status)}
 					</DialogTitle>
 				</DialogHeader>
@@ -219,7 +221,9 @@ export default function HistoryParticipantViewRoute() {
 						<div className="flex-1 space-y-1 text-sm">
 							<p>
 								<span className="text-muted-foreground">Code:</span>{' '}
-								<span className="font-mono font-medium">{participant.registrationCode}</span>
+								<span className="font-mono font-medium">
+									{participant.registrationCode}
+								</span>
 							</p>
 							<p>
 								<span className="text-muted-foreground">Event:</span>{' '}
@@ -241,7 +245,7 @@ export default function HistoryParticipantViewRoute() {
 					</div>
 
 					{/* Details Grid */}
-					<div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+					<div className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
 						<p>
 							<span className="text-muted-foreground">Job Title:</span>{' '}
 							{participant.jobTitle || 'N/A'}
@@ -281,7 +285,10 @@ export default function HistoryParticipantViewRoute() {
 										<div className="text-sm">
 											<span className="font-medium">{approval.step.name}</span>
 											<span className="ml-3 text-muted-foreground">
-												{format(new Date(approval.createdAt), 'MMM d, yyyy h:mm a')}
+												{format(
+													new Date(approval.createdAt),
+													'MMM d, yyyy h:mm a',
+												)}
 											</span>
 											{approval.remarks && (
 												<p className="mt-1 italic text-muted-foreground">

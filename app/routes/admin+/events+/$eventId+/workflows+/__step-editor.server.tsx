@@ -1,6 +1,6 @@
 import { parseWithZod } from '@conform-to/zod'
 import { AuditAction, AuditEntityType } from '@prisma/client'
-import { ActionFunctionArgs, json } from '@remix-run/node'
+import { ActionFunctionArgs, json, redirect } from '@remix-run/node'
 import { z } from 'zod'
 import { auditRequest } from '~/utils/audit.server'
 import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
@@ -9,7 +9,7 @@ import { prisma } from '~/utils/db.server'
 import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse } from '~/utils/misc'
 import { redirectWithToast } from '~/utils/toast.server'
-import { StepDeleteSchema, StepEditorSchema } from './__step-editor'
+import { StepEditorSchema } from './__step-editor'
 
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await requireAdminAccess(request)
@@ -28,55 +28,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		formData.get('redirectUrl')?.toString() ||
 		`/admin/events/${eventId}/workflows/${workflowId}/steps`
 
+	// Removing a step has to deal with the participants and history at it, so
+	// it has its own page. The visual builder's Delete button still posts here.
 	if (intent === 'delete') {
-		const submission = await parseWithZod(formData, {
-			schema: StepDeleteSchema,
-			async: true,
-		})
-		if (submission.status !== 'success') {
-			return json(
-				{ result: submission.reply() },
-				{ status: submission.status === 'error' ? 400 : 200 },
-			)
-		}
-
-		// Verify step belongs to current user's tenant
-		const stepToDelete = await prisma.step.findFirst({
-			where: {
-				id: submission.value.id,
-				workflow: { event: tenantFilter },
-			},
-			select: {
-				id: true,
-				name: true,
-				action: true,
-				tenantId: true,
-				workflow: { select: { id: true, name: true } },
-			},
-		})
-
-		invariantResponse(stepToDelete, 'Step not found', { status: 404 })
-
-		await prisma.step.delete({
-			where: { id: submission.value.id },
-		})
-
-		await auditRequest({
-			request,
-			action: AuditAction.DELETE,
-			entityType: AuditEntityType.STEP,
-			entityId: submission.value.id,
-			description: `Deleted step "${stepToDelete?.name}" from workflow "${stepToDelete?.workflow.name}"`,
-			userId: user.id,
-			tenantId: stepToDelete?.tenantId,
-			metadata: { step: stepToDelete },
-		})
-
-		return redirectWithToast(redirectUrl, {
-			type: 'success',
-			title: `Step Deleted`,
-			description: `Step deleted successfully.`,
-		})
+		const id = formData.get('id')?.toString()
+		invariantResponse(id, 'Step not found', { status: 404 })
+		return redirect(
+			`/admin/events/${eventId}/workflows/${workflowId}/steps/${id}/delete`,
+		)
 	}
 
 	const submission = await parseWithZod(formData, {
@@ -91,14 +50,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
 						name: data.name ?? '',
 					},
 				},
-				select: { id: true },
+				select: { id: true, retiredAt: true },
 			})
 
 			if (step && step.id !== data.id) {
 				ctx.addIssue({
 					path: ['name'],
 					code: z.ZodIssueCode.custom,
-					message: 'Step with this name already exists.',
+					message: step.retiredAt
+						? 'A retired step has this name. Restore it from the Retired steps list instead.'
+						: 'Step with this name already exists.',
 				})
 				return
 			}
@@ -130,6 +91,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const resolvedNextStepId =
 		nextStepId === '__none__' || !nextStepId ? null : nextStepId
 
+	if (resolvedNextStepId) {
+		const next = await prisma.step.findFirst({
+			where: {
+				id: resolvedNextStepId,
+				workflowId: data.workflowId,
+				retiredAt: null,
+			},
+			select: { id: true },
+		})
+		if (!next) {
+			return json(
+				{
+					result: submission.reply({
+						fieldErrors: { nextStepId: ['Choose a step in this workflow.'] },
+					}),
+				},
+				{ status: 400 },
+			)
+		}
+	}
+
 	// Check if isRejectionTarget or isBypassTarget is changing (must check BEFORE upsert)
 	let wasRejectionTarget = false
 	let wasBypassTarget = false
@@ -138,6 +120,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const existingStep = await prisma.step.findFirst({
 			where: {
 				id: stepId,
+				retiredAt: null,
 				workflow: { event: tenantFilter },
 			},
 			select: { isRejectionTarget: true, isBypassTarget: true },

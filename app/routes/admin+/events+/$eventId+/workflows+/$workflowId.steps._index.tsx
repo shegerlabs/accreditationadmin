@@ -1,7 +1,13 @@
 import { Role } from '@prisma/client'
 import { LoaderFunctionArgs, SerializeFrom, json } from '@remix-run/node'
-import { useLoaderData, useOutletContext, useParams } from '@remix-run/react'
-import { EditIcon, TrashIcon, UserIcon } from 'lucide-react'
+import {
+	Link,
+	useLoaderData,
+	useOutletContext,
+	useParams,
+} from '@remix-run/react'
+import { ArchiveRestore, EditIcon, TrashIcon, UserIcon } from 'lucide-react'
+import { Button } from '~/components/ui/button'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
@@ -19,7 +25,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			model: prisma.step,
 			searchFields: [{ role: 'name' }],
 			filterFields: ['roleId'],
-			where: { workflowId },
+			where: { workflowId, retiredAt: null },
 			orderBy: [{ order: 'asc' }],
 			select: {
 				id: true,
@@ -59,6 +65,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			: null,
 	}))
 
+	const retiredSteps = await prisma.step.findMany({
+		where: { workflowId, retiredAt: { not: null } },
+		select: {
+			id: true,
+			name: true,
+			retiredAt: true,
+			role: { select: { name: true } },
+			_count: { select: { approvals: true } },
+		},
+		orderBy: { retiredAt: 'desc' },
+	})
+
 	const roles = await prisma.role.findMany({
 		select: { id: true, name: true },
 		orderBy: { name: 'asc' },
@@ -67,6 +85,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return json({
 		status: 'idle',
 		steps: stepsWithNextStep,
+		retiredSteps,
 		roles,
 		totalPages,
 		currentPage,
@@ -85,6 +104,13 @@ export default function StepsListRoute() {
 
 	return (
 		<div className="w-full">
+			{data.retiredSteps.length > 0 && (
+				<>
+					<RetiredSteps steps={data.retiredSteps} />
+					{/* With retired steps above, say which list this is. */}
+					<h2 className="mb-3 text-sm font-medium">Active steps</h2>
+				</>
+			)}
 			<div className="mb-6">
 				<SearchBar
 					status={data.status}
@@ -155,7 +181,7 @@ export default function StepsListRoute() {
 						variant: 'outline' as const,
 					},
 					{
-						label: 'Delete',
+						label: 'Remove',
 						icon: <TrashIcon className="h-4 w-4" />,
 						href: (step: any) => `${step.id}/delete`,
 						variant: 'outline' as const,
@@ -169,5 +195,52 @@ export default function StepsListRoute() {
 				pageSizeOptions={pageSizeOptions}
 			/>
 		</div>
+	)
+}
+
+function RetiredSteps({
+	steps,
+}: {
+	steps: SerializeFrom<typeof loader>['retiredSteps']
+}) {
+	return (
+		<section className="mb-8 space-y-3">
+			<div>
+				<h2 className="text-sm font-medium">Retired steps</h2>
+				<p className="text-sm text-muted-foreground">
+					Out of the workflow, kept so past approvals still show where they
+					happened.
+				</p>
+			</div>
+			<ul className="divide-y rounded-md border">
+				{steps.map(step => (
+					<li
+						key={step.id}
+						className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
+					>
+						<div>
+							<Link
+								to={`retired/${step.id}`}
+								className="font-medium hover:underline"
+							>
+								{step.name}
+							</Link>
+							<span className="text-muted-foreground">
+								{' '}
+								· {step.role.name} · {step._count.approvals} approval
+								{step._count.approvals === 1 ? '' : 's'} · retired{' '}
+								{new Date(step.retiredAt!).toLocaleDateString()}
+							</span>
+						</div>
+						<Button asChild variant="outline" size="sm">
+							<Link to={`${step.id}/restore`}>
+								<ArchiveRestore className="mr-1 h-4 w-4" />
+								Restore
+							</Link>
+						</Button>
+					</li>
+				))}
+			</ul>
+		</section>
 	)
 }

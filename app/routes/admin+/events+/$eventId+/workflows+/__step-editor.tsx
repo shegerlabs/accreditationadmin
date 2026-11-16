@@ -61,10 +61,6 @@ export const StepEditorSchema = z.object({
 		.pipe(z.number().int().min(0).nullable()),
 })
 
-export const StepDeleteSchema = z.object({
-	id: z.string(),
-})
-
 export function StepEditor({
 	step,
 	workflow,
@@ -91,15 +87,14 @@ export function StepEditor({
 	>
 	workflow: SerializeFrom<Pick<Workflow, 'id' | 'tenantId' | 'eventId'>>
 	title: string
-	intent?: 'add' | 'edit' | 'delete'
+	intent?: 'add' | 'edit'
 	steps?: SerializeFrom<Pick<Step, 'id' | 'name'>>[]
 }) {
 	const { roles } = useOutletContext<{
 		roles: Role[]
 	}>()
 	const actionData = useActionData<typeof action>()
-	const disabled = intent === 'delete'
-	const schema = intent === 'delete' ? StepDeleteSchema : StepEditorSchema
+	const schema = StepEditorSchema
 	// Filter out current step from nextStep options
 	const availableNextSteps = steps.filter(s => s.id !== step?.id)
 
@@ -129,18 +124,13 @@ export function StepEditor({
 	return (
 		<FormCard
 			title={title}
-			description={
-				intent === 'delete'
-					? 'Are you sure you want to delete this step? This action cannot be undone.'
-					: undefined
-			}
 			formId={form.id}
 			onSubmit={form.onSubmit}
 			buttons={[
 				{
-					label: intent === 'delete' ? 'Delete' : 'Save',
+					label: 'Save',
 					intent: intent,
-					variant: intent === 'delete' ? 'destructive' : 'default',
+					variant: 'default',
 					type: 'submit',
 				},
 				{
@@ -158,12 +148,7 @@ export function StepEditor({
 
 			<Field>
 				<Label htmlFor={fields.name.id}>Name</Label>
-				<InputField
-					meta={fields.name}
-					type="text"
-					autoComplete="off"
-					disabled={disabled}
-				/>
+				<InputField meta={fields.name} type="text" autoComplete="off" />
 				{fields.name.errors && <FieldError>{fields.name.errors}</FieldError>}
 			</Field>
 
@@ -175,7 +160,6 @@ export function StepEditor({
 						name: role.name,
 						value: role.id,
 					}))}
-					disabled={disabled}
 					placeholder="Select Role"
 				/>
 				{fields.roleId.errors && (
@@ -191,7 +175,6 @@ export function StepEditor({
 						name: action,
 						value: action,
 					}))}
-					disabled={disabled}
 					placeholder="Select Action"
 				/>
 				{fields.action.errors && (
@@ -206,7 +189,6 @@ export function StepEditor({
 					type="number"
 					min={0}
 					autoComplete="off"
-					disabled={disabled}
 				/>
 				{fields.order.errors && <FieldError>{fields.order.errors}</FieldError>}
 			</Field>
@@ -220,7 +202,6 @@ export function StepEditor({
 					type="number"
 					min={0}
 					autoComplete="off"
-					disabled={disabled}
 					placeholder="No SLA"
 				/>
 				<p className="text-sm text-muted-foreground">
@@ -242,7 +223,6 @@ export function StepEditor({
 							value: s.id,
 						})),
 					]}
-					disabled={disabled}
 					placeholder="Select Next Step"
 				/>
 				{fields.nextStepId.errors && (

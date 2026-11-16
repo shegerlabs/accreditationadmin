@@ -32,7 +32,9 @@ const prisma = new PrismaClient()
 
 async function manageWorkflow() {
 	console.log('🚀 Interactive Workflow Manager\n')
-	console.log('This tool helps you create or update workflows for participant types.\n')
+	console.log(
+		'This tool helps you create or update workflows for participant types.\n',
+	)
 
 	let continueLoop = true
 
@@ -123,7 +125,9 @@ async function manageWorkflow() {
 					continue
 				}
 
-				const selectedWf = existingWorkflows.find(wf => wf.id === wfResponse.workflowId)
+				const selectedWf = existingWorkflows.find(
+					wf => wf.id === wfResponse.workflowId,
+				)
 				const confirmResponse = await prompts({
 					type: 'confirm',
 					name: 'confirm',
@@ -133,6 +137,19 @@ async function manageWorkflow() {
 
 				if (!confirmResponse.confirm) {
 					console.log('\n❌ Operation cancelled\n')
+					continue
+				}
+
+				const inUse = await prisma.participant.count({
+					where: { step: { workflowId: wfResponse.workflowId } },
+				})
+				const history = await prisma.approval.count({
+					where: { step: { workflowId: wfResponse.workflowId } },
+				})
+				if (inUse + history > 0) {
+					console.log(
+						`\n❌ Cannot delete: ${inUse} participant(s) and ${history} approval(s) reference this workflow's steps.\n`,
+					)
 					continue
 				}
 
@@ -175,7 +192,9 @@ async function manageWorkflow() {
 					continue
 				}
 
-				const selectedWf = existingWorkflows.find(wf => wf.id === wfResponse.workflowId)
+				const selectedWf = existingWorkflows.find(
+					wf => wf.id === wfResponse.workflowId,
+				)
 				selectedWorkflowId = wfResponse.workflowId
 				selectedEventId = selectedWf?.eventId
 				selectedParticipantTypeId = selectedWf?.participantTypeId
@@ -194,7 +213,9 @@ async function manageWorkflow() {
 				})
 
 				if (participantTypes.length === 0) {
-					console.log('\n❌ No participant types found. Please create a participant type first.\n')
+					console.log(
+						'\n❌ No participant types found. Please create a participant type first.\n',
+					)
 					continue
 				}
 
@@ -233,7 +254,9 @@ async function manageWorkflow() {
 			// Get event and participant type
 			const event = events.find(e => e.id === selectedEventId)
 			const participantTypes = await prisma.participantType.findMany()
-			const participantType = participantTypes.find(pt => pt.id === selectedParticipantTypeId)
+			const participantType = participantTypes.find(
+				pt => pt.id === selectedParticipantTypeId,
+			)
 
 			if (!event || !participantType) {
 				console.log('\n❌ Event or participant type not found\n')
@@ -244,14 +267,17 @@ async function manageWorkflow() {
 			const workflowTypeResponse = await prompts({
 				type: 'confirm',
 				name: 'useStandardWorkflow',
-				message: 'Use standard workflow? (Request → Review → First Approval → Second Approval → Badge Print → Final)',
+				message:
+					'Use standard workflow? (Request → Review → First Approval → Second Approval → Badge Print → Final)',
 				initial: true,
 			})
 
 			console.log('\n📋 Configuration:')
 			console.log(`   Event: ${event.name}`)
 			console.log(`   Participant Type: ${participantType.name}`)
-			console.log(`   Workflow Type: ${workflowTypeResponse.useStandardWorkflow ? 'Standard' : 'Custom'}\n`)
+			console.log(
+				`   Workflow Type: ${workflowTypeResponse.useStandardWorkflow ? 'Standard' : 'Custom'}\n`,
+			)
 
 			// Find the necessary roles
 			const roles = await prisma.role.findMany({
@@ -271,12 +297,16 @@ async function manageWorkflow() {
 
 			const reviewer = roles.find(role => role.name === 'reviewer')
 			const firstApprover = roles.find(role => role.name === 'first-validator')
-			const secondApprover = roles.find(role => role.name === 'second-validator')
+			const secondApprover = roles.find(
+				role => role.name === 'second-validator',
+			)
 			const badgePrinter = roles.find(role => role.name === 'badge-printer')
 			const broadcast = roles.find(role => role.name === 'broadcast')
 
 			if (!reviewer || !firstApprover || !secondApprover || !badgePrinter) {
-				console.log('❌ Required roles not found (reviewer, first-validator, second-validator, badge-printer)\n')
+				console.log(
+					'❌ Required roles not found (reviewer, first-validator, second-validator, badge-printer)\n',
+				)
 				continue
 			}
 
@@ -299,21 +329,81 @@ async function manageWorkflow() {
 
 			if (isMediaWorkflow && broadcast) {
 				stepConfigs = [
-					{ name: 'Request Received', order: 1, action: Action.APPROVE, roleId: reviewer.id },
-					{ name: 'Review Request', order: 2, action: Action.APPROVE, roleId: reviewer.id },
-					{ name: 'Broadcast Approval', order: 3, action: Action.APPROVE, roleId: broadcast.id },
-					{ name: 'Second Approval', order: 4, action: Action.APPROVE, roleId: secondApprover.id },
-					{ name: 'Badge Print', order: 5, action: Action.PRINT, roleId: badgePrinter.id },
-					{ name: 'Final', order: 6, action: Action.ARCHIVE, roleId: badgePrinter.id },
+					{
+						name: 'Request Received',
+						order: 1,
+						action: Action.APPROVE,
+						roleId: reviewer.id,
+					},
+					{
+						name: 'Review Request',
+						order: 2,
+						action: Action.APPROVE,
+						roleId: reviewer.id,
+					},
+					{
+						name: 'Broadcast Approval',
+						order: 3,
+						action: Action.APPROVE,
+						roleId: broadcast.id,
+					},
+					{
+						name: 'Second Approval',
+						order: 4,
+						action: Action.APPROVE,
+						roleId: secondApprover.id,
+					},
+					{
+						name: 'Badge Print',
+						order: 5,
+						action: Action.PRINT,
+						roleId: badgePrinter.id,
+					},
+					{
+						name: 'Final',
+						order: 6,
+						action: Action.ARCHIVE,
+						roleId: badgePrinter.id,
+					},
 				]
 			} else {
 				stepConfigs = [
-					{ name: 'Request Received', order: 1, action: Action.APPROVE, roleId: reviewer.id },
-					{ name: 'Review Request', order: 2, action: Action.APPROVE, roleId: reviewer.id },
-					{ name: 'First Approval', order: 3, action: Action.APPROVE, roleId: firstApprover.id },
-					{ name: 'Second Approval', order: 4, action: Action.APPROVE, roleId: secondApprover.id },
-					{ name: 'Badge Print', order: 5, action: Action.PRINT, roleId: badgePrinter.id },
-					{ name: 'Final', order: 6, action: Action.ARCHIVE, roleId: badgePrinter.id },
+					{
+						name: 'Request Received',
+						order: 1,
+						action: Action.APPROVE,
+						roleId: reviewer.id,
+					},
+					{
+						name: 'Review Request',
+						order: 2,
+						action: Action.APPROVE,
+						roleId: reviewer.id,
+					},
+					{
+						name: 'First Approval',
+						order: 3,
+						action: Action.APPROVE,
+						roleId: firstApprover.id,
+					},
+					{
+						name: 'Second Approval',
+						order: 4,
+						action: Action.APPROVE,
+						roleId: secondApprover.id,
+					},
+					{
+						name: 'Badge Print',
+						order: 5,
+						action: Action.PRINT,
+						roleId: badgePrinter.id,
+					},
+					{
+						name: 'Final',
+						order: 6,
+						action: Action.ARCHIVE,
+						roleId: badgePrinter.id,
+					},
 				]
 			}
 
@@ -346,7 +436,9 @@ async function manageWorkflow() {
 
 				// Update or create steps
 				for (const stepConfig of stepConfigs) {
-					const existingStep = workflow.steps.find(s => s.name === stepConfig.name)
+					const existingStep = workflow.steps.find(
+						s => s.name === stepConfig.name,
+					)
 
 					if (existingStep) {
 						await prisma.step.update({
@@ -419,7 +511,10 @@ async function manageWorkflow() {
 
 			// APPROVE/PRINT transitions (sequential)
 			for (let i = 0; i < steps.length - 1; i++) {
-				if (steps[i].action === Action.APPROVE || steps[i].action === Action.PRINT) {
+				if (
+					steps[i].action === Action.APPROVE ||
+					steps[i].action === Action.PRINT
+				) {
 					await prisma.step.update({
 						where: { id: steps[i].id },
 						data: { nextStepId: steps[i + 1].id },

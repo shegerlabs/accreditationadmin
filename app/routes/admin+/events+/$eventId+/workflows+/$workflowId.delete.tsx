@@ -161,6 +161,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 	}
 
+	// Participants who changed type keep their approvals on this workflow's
+	// steps, and those can't be deleted out from under them.
+	const historyCount = await prisma.approval.count({
+		where: { stepId: { in: stepIds } },
+	})
+	if (historyCount > 0) {
+		return json(
+			{
+				result: submission.reply({
+					formErrors: [
+						`Cannot delete workflow: ${historyCount} approval${historyCount !== 1 ? 's' : ''} recorded at its steps would be lost. Retire the steps you no longer need instead.`,
+					],
+				}),
+			},
+			{ status: 400 },
+		)
+	}
+
 	await prisma.workflow.delete({
 		where: { id: workflowId },
 	})

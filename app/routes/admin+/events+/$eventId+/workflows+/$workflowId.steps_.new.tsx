@@ -24,7 +24,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Get all existing steps for this workflow to populate the nextStepId dropdown
 	const steps = await prisma.step.findMany({
-		where: { workflowId },
+		where: { workflowId, retiredAt: null },
 		select: { id: true, name: true },
 		orderBy: { order: 'asc' },
 	})

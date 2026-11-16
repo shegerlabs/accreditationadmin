@@ -92,9 +92,22 @@ export async function action({ request }: ActionFunctionArgs) {
 		select: {
 			id: true,
 			stepId: true,
-			step: { select: { id: true, name: true } },
+			step: { select: { id: true, name: true, retiredAt: true } },
 		},
 	})
+
+	if (lastBypassApproval?.step.retiredAt) {
+		return json(
+			{
+				result: submission.reply({
+					formErrors: [
+						`"${lastBypassApproval.step.name}" has been retired since the bypass. Restore it, or use Move participants on the workflow instead.`,
+					],
+				}),
+			},
+			{ status: 400 },
+		)
+	}
 
 	if (!lastBypassApproval) {
 		return json(

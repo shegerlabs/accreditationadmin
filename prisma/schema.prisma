@@ -60,6 +60,7 @@ enum Action {
   CANCEL
   BYPASS
   REPRINT
+  MOVE // Admin moved a participant to another step; never a step's own action
 }
 
 enum AccessLevel {
@@ -602,6 +603,11 @@ model Step {
   slaDurationMinutes Int?     // SLA duration in minutes, null = no SLA
   positionX          Float?   // Visual builder X position
   positionY         Float?   // Visual builder Y position
+  // Set when the step is taken out of the workflow but kept for its approval
+  // history. Retired steps hold no participants and are linked from nowhere.
+  retiredAt         DateTime?
+  /// Where a retired step sat, so restoring can put it back: { predecessorIds, access }.
+  retiredLinks      Json?
 
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -765,7 +771,9 @@ model Participant {
   badgeRevokedAt        DateTime?
   badgeRevokedReason    String?
   stepId                String
-  step                  Step                  @relation(fields: [stepId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  // NoAction, not Cascade: deleting a step must never delete the people at it.
+  // Move them off first (admin "Move participants"), or retire the step.
+  step                  Step                  @relation(fields: [stepId], references: [id], onDelete: NoAction, onUpdate: Cascade)
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
   deletedAt             DateTime?
@@ -807,7 +815,8 @@ model Approval {
   participantId String
   participant   Participant    @relation(fields: [participantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   stepId        String
-  step          Step           @relation(fields: [stepId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  // NoAction: a step with history can be retired but not deleted.
+  step          Step           @relation(fields: [stepId], references: [id], onDelete: NoAction, onUpdate: Cascade)
   action        Action         @default(APPROVE)
   result        ApprovalResult
   remarks       String?

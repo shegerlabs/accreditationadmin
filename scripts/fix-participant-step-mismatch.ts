@@ -22,7 +22,11 @@ interface MismatchRecord {
 
 async function main() {
 	console.log(chalk.bold('\nParticipant Step Mismatch Fixer'))
-	console.log(chalk.gray('Finds participants whose stepId points to a workflow for a different participant type.\n'))
+	console.log(
+		chalk.gray(
+			'Finds participants whose stepId points to a workflow for a different participant type.\n',
+		),
+	)
 
 	// Use raw query to efficiently find mismatches via join
 	const mismatches: MismatchRecord[] = await prisma.$queryRaw`
@@ -47,31 +51,52 @@ async function main() {
 	`
 
 	if (mismatches.length === 0) {
-		console.log(chalk.green('No mismatches found. All participants are correctly assigned.'))
+		console.log(
+			chalk.green(
+				'No mismatches found. All participants are correctly assigned.',
+			),
+		)
 		return
 	}
 
-	console.log(chalk.yellow(`Found ${mismatches.length} participant(s) with step mismatches.\n`))
+	console.log(
+		chalk.yellow(
+			`Found ${mismatches.length} participant(s) with step mismatches.\n`,
+		),
+	)
 
 	// Build a step cache to avoid repeated queries for the same workflow+step
 	const stepCache = new Map<string, { id: string; name: string } | null>()
 	const workflowCache = new Map<string, { id: string; name: string } | null>()
 
-	const fixable: Array<{ participantId: string; newStepId: string; participantTypeName: string; stepName: string; workflowName: string }> = []
-	const unfixable: Array<{ participantId: string; details: string; reason: string }> = []
+	const fixable: Array<{
+		participantId: string
+		newStepId: string
+		participantTypeName: string
+		stepName: string
+		workflowName: string
+	}> = []
+	const unfixable: Array<{
+		participantId: string
+		details: string
+		reason: string
+	}> = []
 
 	for (const p of mismatches) {
 		const workflowKey = `${p.tenantId}:${p.eventId}:${p.participantTypeId}`
 
 		if (!workflowCache.has(workflowKey)) {
-			workflowCache.set(workflowKey, await prisma.workflow.findFirst({
-				where: {
-					tenantId: p.tenantId,
-					eventId: p.eventId,
-					participantTypeId: p.participantTypeId,
-				},
-				select: { id: true, name: true },
-			}))
+			workflowCache.set(
+				workflowKey,
+				await prisma.workflow.findFirst({
+					where: {
+						tenantId: p.tenantId,
+						eventId: p.eventId,
+						participantTypeId: p.participantTypeId,
+					},
+					select: { id: true, name: true },
+				}),
+			)
 		}
 
 		const correctWorkflow = workflowCache.get(workflowKey)
@@ -88,13 +113,17 @@ async function main() {
 		const stepKey = `${correctWorkflow.id}:${p.stepName}`
 
 		if (!stepCache.has(stepKey)) {
-			stepCache.set(stepKey, await prisma.step.findFirst({
-				where: {
-					workflowId: correctWorkflow.id,
-					name: p.stepName,
-				},
-				select: { id: true, name: true },
-			}))
+			stepCache.set(
+				stepKey,
+				await prisma.step.findFirst({
+					where: {
+						workflowId: correctWorkflow.id,
+						name: p.stepName,
+						retiredAt: null,
+					},
+					select: { id: true, name: true },
+				}),
+			)
 		}
 
 		const matchingStep = stepCache.get(stepKey)
@@ -131,7 +160,11 @@ async function main() {
 	}
 
 	if (unfixable.length > 0) {
-		console.log(chalk.red(`\nUnfixable (${unfixable.length}) - require manual intervention:`))
+		console.log(
+			chalk.red(
+				`\nUnfixable (${unfixable.length}) - require manual intervention:`,
+			),
+		)
 		const summary = new Map<string, number>()
 		for (const u of unfixable) {
 			summary.set(u.reason, (summary.get(u.reason) ?? 0) + 1)
@@ -142,7 +175,11 @@ async function main() {
 	}
 
 	if (fixable.length === 0) {
-		console.log(chalk.yellow('\nNo automatically fixable mismatches. Review unfixable records manually.'))
+		console.log(
+			chalk.yellow(
+				'\nNo automatically fixable mismatches. Review unfixable records manually.',
+			),
+		)
 		return
 	}
 
@@ -182,12 +219,16 @@ async function main() {
 
 	console.log(chalk.green(`\nFixed ${fixed} participant(s).`))
 	if (unfixable.length > 0) {
-		console.log(chalk.yellow(`${unfixable.length} participant(s) still need manual attention.`))
+		console.log(
+			chalk.yellow(
+				`${unfixable.length} participant(s) still need manual attention.`,
+			),
+		)
 	}
 }
 
 main()
-	.catch((e) => {
+	.catch(e => {
 		console.error(chalk.red('Error:'), e)
 		process.exit(1)
 	})

@@ -1,5 +1,5 @@
 import { parseWithZod } from '@conform-to/zod'
-import { AuditAction, AuditEntityType } from '@prisma/client'
+import { AuditAction, AuditEntityType, Prisma } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
 import { auditRequest } from '~/utils/audit.server'
@@ -38,21 +38,40 @@ export async function action({ request }: ActionFunctionArgs) {
 			)
 		}
 
-		const tenant = await prisma.tenant.delete({
-			where: { id: submission.value.id },
-			select: {
-				id: true,
-				name: true,
-				email: true,
-				phone: true,
-				website: true,
-				address: true,
-				city: true,
-				state: true,
-				zip: true,
-				country: true,
-			},
-		})
+		const tenant = await prisma.tenant
+			.delete({
+				where: { id: submission.value.id },
+				select: {
+					id: true,
+					name: true,
+					email: true,
+					phone: true,
+					website: true,
+					address: true,
+					city: true,
+					state: true,
+					zip: true,
+					country: true,
+				},
+			})
+			// Step's participant and approval foreign keys are NO ACTION, so this
+			// fails instead of cascading into participants and approval history.
+			.catch((error: unknown) => {
+				if (
+					error instanceof Prisma.PrismaClientKnownRequestError &&
+					error.code === 'P2003'
+				)
+					return null
+				throw error
+			})
+		if (!tenant) {
+			return redirectWithToast('/admin/tenants', {
+				type: 'error',
+				title: 'Cannot Delete',
+				description:
+					'Workflow steps that hold participants or approval history use this tenant, so it can’t be deleted.',
+			})
+		}
 
 		await auditRequest({
 			request,

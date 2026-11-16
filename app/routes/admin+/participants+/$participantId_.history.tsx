@@ -36,7 +36,10 @@ function isSystemStep(stepName: string): boolean {
 	)
 }
 
-function getApproverDisplay(approval: { step: { name: string }; user?: { username: string } | null }): string {
+function getApproverDisplay(approval: {
+	step: { name: string }
+	user?: { username: string } | null
+}): string {
 	if (isSystemStep(approval.step.name)) {
 		return 'System'
 	}
@@ -142,7 +145,9 @@ export async function action({ params, request }: ActionFunctionArgs) {
 	await validateCSRF(formData, request.headers)
 
 	const emailLogId = formData.get('emailLogId')
-	invariantResponse(typeof emailLogId === 'string', 'Email not found', { status: 400 })
+	invariantResponse(typeof emailLogId === 'string', 'Email not found', {
+		status: 400,
+	})
 	const emailLog = await prisma.emailLog.findFirst({
 		where: { id: emailLogId, participantId: params.participantId },
 		select: { id: true, participant: { select: { tenantId: true } } },
@@ -161,11 +166,14 @@ export async function action({ params, request }: ActionFunctionArgs) {
 		metadata: { emailLogId: emailLog.id, trigger: resent.trigger },
 	})
 
-	return redirectWithToast(`/admin/participants/${params.participantId}/history`, {
-		type: 'success',
-		title: 'Email resent',
-		description: `Sending to ${resent.recipient}. The status below updates when you refresh.`,
-	})
+	return redirectWithToast(
+		`/admin/participants/${params.participantId}/history`,
+		{
+			type: 'success',
+			title: 'Email resent',
+			description: `Sending to ${resent.recipient}. The status below updates when you refresh.`,
+		},
+	)
 }
 
 const emailStatusStyles: Record<string, string> = {
@@ -189,6 +197,7 @@ export default function ParticipantHistoryRoute() {
 			NOTIFY: 'Notified',
 			ARCHIVE: 'Archived',
 			BYPASS: 'Bypassed',
+			MOVE: 'Moved by admin',
 		}
 		return labels[action] || action
 	}
@@ -347,7 +356,9 @@ export default function ParticipantHistoryRoute() {
 							<div className="space-y-6">
 								{participant.approvals.map((approval, index) => {
 									const isBypass = approval.action === 'BYPASS'
-									const isAdminReject = approval.remarks?.includes('Rejected by administrator')
+									const isAdminReject = approval.remarks?.includes(
+										'Rejected by administrator',
+									)
 									const displayName = isBypass
 										? 'Admin Bypass'
 										: isAdminReject
@@ -356,71 +367,69 @@ export default function ParticipantHistoryRoute() {
 									const displayAction = getActionLabel(approval.action)
 
 									return (
-									<div key={approval.id} className="relative flex gap-4">
-										{/* Icon */}
-										<div
-											className={`relative z-10 flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full border-2 bg-white ${getActionColor(displayAction)}`}
-										>
-											{getResultIcon(approval.result)}
-										</div>
+										<div key={approval.id} className="relative flex gap-4">
+											{/* Icon */}
+											<div
+												className={`relative z-10 flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full border-2 bg-white ${getActionColor(displayAction)}`}
+											>
+												{getResultIcon(approval.result)}
+											</div>
 
-										{/* Content */}
-										<div className="flex-1 pb-6">
-											<div className="rounded-lg border bg-card p-4">
-												<div className="mb-2 flex items-center justify-between">
-													<div className="flex items-center gap-2">
-														<h3 className="font-semibold">
-															{displayName}
-														</h3>
-														<Badge variant="outline">
-															{displayAction}
+											{/* Content */}
+											<div className="flex-1 pb-6">
+												<div className="rounded-lg border bg-card p-4">
+													<div className="mb-2 flex items-center justify-between">
+														<div className="flex items-center gap-2">
+															<h3 className="font-semibold">{displayName}</h3>
+															<Badge variant="outline">{displayAction}</Badge>
+														</div>
+														<Badge
+															className={getResultBadgeStyle(approval.result)}
+														>
+															{approval.result}
 														</Badge>
 													</div>
-													<Badge className={getResultBadgeStyle(approval.result)}>
-														{approval.result}
-													</Badge>
-												</div>
 
-												<div className="mb-2 flex items-center gap-4 text-sm text-muted-foreground">
-													<div className="flex items-center gap-1">
-														<UserIcon className="h-4 w-4" />
-														<span>{getApproverDisplay(approval)}</span>
+													<div className="mb-2 flex items-center gap-4 text-sm text-muted-foreground">
+														<div className="flex items-center gap-1">
+															<UserIcon className="h-4 w-4" />
+															<span>{getApproverDisplay(approval)}</span>
+														</div>
+														<Separator orientation="vertical" className="h-4" />
+														<div className="flex items-center gap-1">
+															<ClockIcon className="h-4 w-4" />
+															<span>
+																{format(
+																	new Date(approval.createdAt),
+																	'MMM d, yyyy HH:mm:ss',
+																)}
+															</span>
+														</div>
+														<Separator orientation="vertical" className="h-4" />
+														<div>
+															Role:{' '}
+															<span className="font-medium">
+																{isBypass || isAdminReject
+																	? 'Admin'
+																	: isSystemStep(approval.step.name)
+																		? 'System'
+																		: approval.step.role.name === 'reviewer'
+																			? 'Focal Person'
+																			: approval.step.role.name}
+															</span>
+														</div>
 													</div>
-													<Separator orientation="vertical" className="h-4" />
-													<div className="flex items-center gap-1">
-														<ClockIcon className="h-4 w-4" />
-														<span>
-															{format(
-																new Date(approval.createdAt),
-																'MMM d, yyyy HH:mm:ss',
-															)}
-														</span>
-													</div>
-													<Separator orientation="vertical" className="h-4" />
-													<div>
-														Role:{' '}
-														<span className="font-medium">
-															{isBypass || isAdminReject
-																? 'Admin'
-																: isSystemStep(approval.step.name)
-																	? 'System'
-																	: approval.step.role.name === 'reviewer'
-																		? 'Focal Person'
-																		: approval.step.role.name}
-														</span>
-													</div>
-												</div>
 
-												{approval.remarks && (
-													<div className="mt-3 rounded-md bg-muted p-3">
-														<p className="text-sm">{approval.remarks}</p>
-													</div>
-												)}
+													{approval.remarks && (
+														<div className="mt-3 rounded-md bg-muted p-3">
+															<p className="text-sm">{approval.remarks}</p>
+														</div>
+													)}
+												</div>
 											</div>
 										</div>
-									</div>
-								)})}
-
+									)
+								})}
 
 								{/* Next Step - only show if status is INPROGRESS */}
 								{participant.status === 'INPROGRESS' && (
@@ -485,21 +494,30 @@ export default function ParticipantHistoryRoute() {
 					) : (
 						<ul className="divide-y">
 							{participant.emailLogs.map(email => (
-								<li key={email.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
+								<li
+									key={email.id}
+									className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between"
+								>
 									<div className="min-w-0 flex-1">
 										<div className="flex flex-wrap items-center gap-2">
 											<span className="font-medium">
 												{emailLogLabel(email.trigger)}
 											</span>
-											<Badge className={emailStatusStyles[email.status]}>{email.status}</Badge>
+											<Badge className={emailStatusStyles[email.status]}>
+												{email.status}
+											</Badge>
 										</div>
 										<p className="mt-1 break-all text-sm text-muted-foreground">
 											To {email.recipient} •{' '}
 											{format(new Date(email.createdAt), 'MMM d, yyyy HH:mm')}
-											{email.triggeredBy ? ` • by ${email.triggeredBy.username}` : ''}
+											{email.triggeredBy
+												? ` • by ${email.triggeredBy.username}`
+												: ''}
 										</p>
 										{email.status === 'FAILED' && email.error && (
-											<p className="mt-1 break-all text-sm text-destructive">{email.error}</p>
+											<p className="mt-1 break-all text-sm text-destructive">
+												{email.error}
+											</p>
 										)}
 										<details className="mt-2 text-sm">
 											<summary className="cursor-pointer text-muted-foreground">
@@ -513,7 +531,12 @@ export default function ParticipantHistoryRoute() {
 									<Form method="POST" className="shrink-0">
 										<AuthenticityTokenInput />
 										<input type="hidden" name="emailLogId" value={email.id} />
-										<Button type="submit" variant="outline" size="sm" disabled={resendingId === email.id}>
+										<Button
+											type="submit"
+											variant="outline"
+											size="sm"
+											disabled={resendingId === email.id}
+										>
 											<RotateCwIcon className="mr-2 h-4 w-4" />
 											{resendingId === email.id ? 'Resending...' : 'Resend'}
 										</Button>

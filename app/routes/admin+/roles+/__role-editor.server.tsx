@@ -1,5 +1,5 @@
 import { parseWithZod } from '@conform-to/zod'
-import { AuditAction, AuditEntityType } from '@prisma/client'
+import { AuditAction, AuditEntityType, Prisma } from '@prisma/client'
 import { ActionFunctionArgs, json } from '@remix-run/node'
 import { z } from 'zod'
 import { auditRequest } from '~/utils/audit.server'
@@ -31,10 +31,29 @@ export async function action({ request }: ActionFunctionArgs) {
 			)
 		}
 
-		const role = await prisma.role.delete({
-			select: { id: true, name: true, description: true },
-			where: { id: submission.value.id },
-		})
+		const role = await prisma.role
+			.delete({
+				select: { id: true, name: true, description: true },
+				where: { id: submission.value.id },
+			})
+			// Step's participant and approval foreign keys are NO ACTION, so this
+			// fails instead of cascading into participants and approval history.
+			.catch((error: unknown) => {
+				if (
+					error instanceof Prisma.PrismaClientKnownRequestError &&
+					error.code === 'P2003'
+				)
+					return null
+				throw error
+			})
+		if (!role) {
+			return redirectWithToast('/admin/roles', {
+				type: 'error',
+				title: 'Cannot Delete',
+				description:
+					'Workflow steps that hold participants or approval history use this role, so it can’t be deleted.',
+			})
+		}
 
 		await auditRequest({
 			request,

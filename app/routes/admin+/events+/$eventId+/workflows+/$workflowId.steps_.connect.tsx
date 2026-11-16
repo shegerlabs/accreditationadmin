@@ -133,6 +133,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return json({ error: 'A step cannot connect to itself' }, { status: 400 })
 		}
 
+		const target = await prisma.step.findFirst({
+			where: {
+				id: targetStepId,
+				workflowId: params.workflowId,
+				retiredAt: null,
+			},
+			select: { id: true },
+		})
+		if (!target) {
+			return json({ error: 'Target step not found' }, { status: 400 })
+		}
+
 		// Check for cycles
 		const createsCycle = await wouldCreateCycle(sourceStepId, targetStepId)
 		if (createsCycle) {

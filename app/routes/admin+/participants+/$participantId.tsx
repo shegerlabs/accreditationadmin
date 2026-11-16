@@ -154,6 +154,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			NOTIFY: 'Notified',
 			ARCHIVE: 'Archived',
 			BYPASS: 'Bypassed',
+			MOVE: 'Moved by admin',
 		}
 		return labels[action] || action
 	}

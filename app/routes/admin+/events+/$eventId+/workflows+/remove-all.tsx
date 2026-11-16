@@ -162,6 +162,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 	}
 
+	const historyCount = await prisma.approval.count({
+		where: { stepId: { in: stepIds } },
+	})
+	if (historyCount > 0) {
+		return json(
+			{
+				result: {
+					status: 'error',
+					error: {
+						'': [
+							`Cannot remove workflows: ${historyCount} approval${historyCount !== 1 ? 's' : ''} recorded at their steps would be lost.`,
+						],
+					},
+				},
+			},
+			{ status: 400 },
+		)
+	}
+
 	// Delete all workflows for this event (steps will cascade delete)
 	const result = await prisma.workflow.deleteMany({
 		where: { eventId },

@@ -599,7 +599,7 @@ export async function applySetupEdit(
 		// replaced. Everyone else keeps theirs, and gets their step on the
 		// workflows created just now.
 		const steps = await tx.step.findMany({
-			where: { workflow: { eventId: event.id } },
+			where: { workflow: { eventId: event.id }, retiredAt: null },
 			select: {
 				id: true,
 				name: true,

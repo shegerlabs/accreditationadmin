@@ -196,6 +196,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				eventId: eventId,
 			},
 			requiresAssignment: true,
+			retiredAt: null,
 		},
 		select: {
 			name: true,
@@ -220,6 +221,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				},
 			},
 			steps: {
+				where: { retiredAt: null },
 				select: {
 					id: true,
 					name: true,
@@ -238,14 +240,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		name: workflow.participantType.name,
 	}))
 
-	// Extract unique assignable step names from the first workflow
-	const assignableStepNames =
-		workflows.length > 0
-			? workflows[0].steps
-					.filter(step => step.requiresAssignment)
-					.sort((a, b) => a.order - b.order)
-					.map(step => step.name)
-			: []
+	// Assignable step names across every workflow, in workflow order. Taking
+	// only the first workflow's would hide a step that exists in another type's
+	// workflow only.
+	const firstOrder = new Map<string, number>()
+	for (const step of workflows.flatMap(w => w.steps)) {
+		if (!step.requiresAssignment) continue
+		const seen = firstOrder.get(step.name)
+		if (seen === undefined || step.order < seen)
+			firstOrder.set(step.name, step.order)
+	}
+	const assignableStepNames = [...firstOrder]
+		.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+		.map(([name]) => name)
 
 	return json({
 		status: 'idle',

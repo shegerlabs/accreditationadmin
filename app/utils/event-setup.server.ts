@@ -147,7 +147,10 @@ export async function loadSetupContext(event: {
 			where: { eventId: event.id },
 			select: {
 				participantTypeId: true,
-				steps: { select: { name: true, role: { select: { name: true } } } },
+				steps: {
+					where: { retiredAt: null },
+					select: { name: true, role: { select: { name: true } } },
+				},
 			},
 		}),
 		prisma.template.findMany({

@@ -152,6 +152,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 					select: { id: true, name: true },
 				},
 				steps: {
+					where: { retiredAt: null },
 					select: { id: true, name: true },
 				},
 			},
@@ -307,6 +308,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				select: { id: true, name: true },
 			},
 			steps: {
+				where: { retiredAt: null },
 				select: { id: true, name: true },
 			},
 		},
