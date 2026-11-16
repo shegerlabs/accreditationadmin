@@ -170,7 +170,13 @@ export function SearchBar({
 			return (
 				<div key={filter.name} className="min-w-[140px]">
 					{filter.type === 'select' ? (
-						<Select name={filter.name} defaultValue={defaultValue}>
+						// Keyed on the value so it follows the URL when something else
+						// changes it (a link that sets the filter, Back/Forward).
+						<Select
+							key={defaultValue}
+							name={filter.name}
+							defaultValue={defaultValue}
+						>
 							<SelectTrigger className="w-full">
 								<SelectValue placeholder={filter.label} />
 							</SelectTrigger>
