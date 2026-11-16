@@ -1,4 +1,4 @@
-import { Action } from '@prisma/client'
+import { Action, type Prisma } from '@prisma/client'
 import { json, LoaderFunctionArgs } from '@remix-run/node'
 import {
 	Link,
@@ -7,6 +7,14 @@ import {
 	useLocation,
 	useSearchParams,
 } from '@remix-run/react'
+import {
+	format,
+	isToday,
+	startOfDay,
+	startOfMonth,
+	startOfWeek,
+	subDays,
+} from 'date-fns'
 import { EyeIcon, ImageIcon } from 'lucide-react'
 import { DataList } from '~/components/data-list'
 import { ErrorDisplay, GeneralErrorBoundary } from '~/components/error-boundary'
@@ -18,34 +26,35 @@ import {
 	requireUserWithRoles,
 } from '~/utils/auth.server'
 import { getCachedCountries } from '~/utils/cache.server'
-import { filterAndPaginate, prisma } from '~/utils/db.server'
+import {
+	buildFilteredWhere,
+	filterAndPaginate,
+	prisma,
+	type FilterField,
+	type SearchField,
+} from '~/utils/db.server'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { calculateSlaStatus } from '~/utils/sla'
-import { ISSUED_STATUSES } from '~/utils/badge-status'
+import { ISSUED_STATUSES, REPRINT_REMARK_PREFIX } from '~/utils/badge-status'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await requireUserWithRoles(request, ['printer'])
 
 	// Get step IDs and participant type IDs the user has access to via UserEventAccess
-	const { stepIds: accessibleStepIds, participantTypeIds: accessibleParticipantTypeIds } =
-		await getUserAccessibleStepInfo(user.id, ['printer'])
+	const {
+		stepIds: accessibleStepIds,
+		participantTypeIds: accessibleParticipantTypeIds,
+	} = await getUserAccessibleStepInfo(user.id, ['printer'])
 
-	// Handle reprinted filter from URL params
 	const url = new URL(request.url)
+	const statusFilter = parseStatusFilter(url.searchParams.get('status'))
 	const reprintedFilter = url.searchParams.get('reprinted')
-	const reprintCondition =
-		reprintedFilter === 'no'
-			? { reprintCount: 0 }
-			: reprintedFilter === 'yes'
-				? { reprintCount: { gt: 0 } }
-				: {}
 
 	// Show participants at printer steps OR already PRINTED participants from those steps
 	// Also filter by participant type for defense-in-depth
-	const stepFilter = {
+	const stepFilter: Prisma.ParticipantWhereInput = {
 		deletedAt: null,
 		participantTypeId: { in: accessibleParticipantTypeIds },
-		...reprintCondition,
 		OR: [
 			{ stepId: { in: accessibleStepIds } },
 			{
@@ -57,7 +66,67 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		],
 	}
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
+	// Printed: list the prints (in the window, if any), latest first, one row
+	// per person. With a window, First print / Reprint is about those prints;
+	// otherwise it's about the badge (reprinted at some point or not).
+	const window = statusFilter.kind === 'printed' ? statusFilter.window : null
+	const prints =
+		statusFilter.kind === 'printed'
+			? await prisma.approval.findMany({
+					where: {
+						action: Action.PRINT,
+						stepId: { in: accessibleStepIds },
+						...(window && { createdAt: window }),
+						...(window &&
+							reprintedFilter === 'yes' && {
+								remarks: { startsWith: REPRINT_REMARK_PREFIX },
+							}),
+						...(window &&
+							reprintedFilter === 'no' && {
+								NOT: { remarks: { startsWith: REPRINT_REMARK_PREFIX } },
+							}),
+					},
+					orderBy: { createdAt: 'desc' },
+					distinct: ['participantId'],
+					select: {
+						participantId: true,
+						createdAt: true,
+						remarks: true,
+						user: { select: { name: true, username: true } },
+					},
+				})
+			: null
+	const printById = new Map(
+		prints?.map(a => [
+			a.participantId,
+			{
+				at: a.createdAt,
+				by: a.user.name || a.user.username,
+				reprint: a.remarks?.startsWith(REPRINT_REMARK_PREFIX) ?? false,
+			},
+		]),
+	)
+
+	const conditions: Prisma.ParticipantWhereInput[] = [stepFilter]
+	if (statusFilter.kind === 'awaiting') {
+		// Bypassed people at a print step are waiting to be printed too.
+		conditions.push({
+			stepId: { in: accessibleStepIds },
+			status: { notIn: [...ISSUED_STATUSES] },
+		})
+	}
+	if (prints) {
+		conditions.push({
+			status: { in: [...ISSUED_STATUSES] },
+			id: { in: prints.map(a => a.participantId) },
+		})
+	}
+	if (!window) {
+		if (reprintedFilter === 'no') conditions.push({ reprintCount: 0 })
+		if (reprintedFilter === 'yes') conditions.push({ reprintCount: { gt: 0 } })
+	}
+
+	const listArgs = {
 		request,
 		model: prisma.participant,
 		searchFields: [
@@ -70,16 +139,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			{ event: 'name' },
 			{ participantType: 'name' },
 			{ country: 'name' },
-		],
+		] as SearchField[],
 		filterFields: [
 			'participantTypeId',
-			'status',
 			'countryId',
 			'organization',
 			{ field: 'attendClosedSession', isBoolean: true },
-		],
-		orderBy: [{ createdAt: 'desc' }],
-		where: stepFilter,
+		] as FilterField[],
+		orderBy: [{ createdAt: 'desc' as const }],
+		where: { AND: conditions },
 		select: {
 			id: true,
 			email: true,
@@ -134,11 +202,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					createdAt: true,
 				},
 			},
-		},
-	})
+		} satisfies Prisma.ParticipantSelect,
+	}
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		prints
+			? await paginateInOrder(
+					listArgs,
+					prints.map(a => a.participantId),
+				)
+			: await filterAndPaginate(listArgs)
 
 	// Get SLA warning threshold from settings
-	const slaWarningThreshold = await getSetting<number>(SettingKeys.SLA_WARNING_THRESHOLD_PERCENT)
+	const slaWarningThreshold = await getSetting<number>(
+		SettingKeys.SLA_WARNING_THRESHOLD_PERCENT,
+	)
 
 	// Calculate SLA status for each participant
 	// Cast to any to access select fields that TypeScript doesn't infer from filterAndPaginate
@@ -156,6 +233,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		return {
 			...participant,
 			slaInfo,
+			lastPrint: printById.get(participant.id) ?? null,
 		}
 	})
 
@@ -194,13 +272,21 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		participantTypes,
 		organizations: organizations.map(o => o.organization),
 		countries,
+		printed: statusFilter.kind === 'printed',
 	} as const)
 }
 
 export default function PrinterRequestsRoute() {
 	const data = useLoaderData<typeof loader>()
-	const { totalPages, currentPage, defaultPageSize, pageSizeOptions, participantTypes, organizations, countries } =
-		data
+	const {
+		totalPages,
+		currentPage,
+		defaultPageSize,
+		pageSizeOptions,
+		participantTypes,
+		organizations,
+		countries,
+	} = data
 	const location = useLocation()
 	const [searchParams] = useSearchParams()
 	const paramsSuffix = searchParams.size ? '?' + searchParams.toString() : ''
@@ -228,6 +314,30 @@ export default function PrinterRequestsRoute() {
 						filterDisplay="popover"
 						filters={[
 							{
+								name: 'status',
+								label: 'Status',
+								type: 'select',
+								options: [
+									{ value: 'all', label: 'All' },
+									{ value: 'awaiting', label: 'Awaiting print' },
+									{ value: 'printed-today', label: 'Printed today' },
+									{ value: 'printed-yesterday', label: 'Printed yesterday' },
+									{ value: 'printed-week', label: 'Printed this week' },
+									{ value: 'printed-month', label: 'Printed this month' },
+									{ value: 'printed', label: 'Printed (any time)' },
+								],
+							},
+							{
+								name: 'reprinted',
+								label: 'First print or reprint',
+								type: 'select',
+								options: [
+									{ value: 'all', label: 'Both' },
+									{ value: 'no', label: 'First prints' },
+									{ value: 'yes', label: 'Reprints' },
+								],
+							},
+							{
 								name: 'organization',
 								label: 'Organization',
 								type: 'select',
@@ -254,17 +364,6 @@ export default function PrinterRequestsRoute() {
 								],
 							},
 							{
-								name: 'status',
-								label: 'Status',
-								type: 'select',
-								options: [
-									{ value: 'all', label: 'All' },
-									{ value: 'INPROGRESS', label: 'Awaiting Print' },
-									{ value: 'PRINTED', label: 'Printed' },
-									{ value: 'BYPASSED', label: 'Bypassed' },
-								],
-							},
-							{
 								name: 'countryId',
 								label: 'Country',
 								type: 'select',
@@ -274,16 +373,6 @@ export default function PrinterRequestsRoute() {
 										value: country.id,
 										label: country.name,
 									})),
-								],
-							},
-							{
-								name: 'reprinted',
-								label: 'Reprinted',
-								type: 'select',
-								options: [
-									{ value: 'all', label: 'All' },
-									{ value: 'no', label: 'Never Reprinted' },
-									{ value: 'yes', label: 'Reprinted' },
 								],
 							},
 							{
@@ -359,7 +448,9 @@ export default function PrinterRequestsRoute() {
 							header: 'Session',
 							render: (participant: any) => (
 								<Badge
-									variant={participant.attendClosedSession ? 'default' : 'secondary'}
+									variant={
+										participant.attendClosedSession ? 'default' : 'secondary'
+									}
 								>
 									{participant.attendClosedSession ? 'Closed' : 'Open'}
 								</Badge>
@@ -370,34 +461,59 @@ export default function PrinterRequestsRoute() {
 							header: 'Country',
 							render: (participant: any) => participant.country?.name,
 						},
+						...(data.printed
+							? [
+									{
+										key: 'printed',
+										header: 'Printed',
+										render: (participant: any) =>
+											participant.lastPrint && (
+												<div className="whitespace-nowrap tabular-nums">
+													<div>
+														{format(
+															new Date(participant.lastPrint.at),
+															isToday(new Date(participant.lastPrint.at))
+																? 'HH:mm'
+																: 'd MMM, HH:mm',
+														)}
+													</div>
+													<div className="text-sm text-muted-foreground">
+														{participant.lastPrint.by}
+														{participant.lastPrint.reprint && ' · Reprint'}
+													</div>
+												</div>
+											),
+									},
+								]
+							: []),
 						{
 							key: 'status',
 							header: 'Status',
 							render: (participant: any) => {
-								const statusStyles = {
-									INPROGRESS:
-										'bg-orange-100 text-orange-800 hover:bg-orange-100/80',
-									PRINTED: 'bg-green-100 text-green-800 hover:bg-green-100/80',
-									APPROVED: 'bg-blue-100 text-blue-800 hover:bg-blue-100/80',
-									COLLECTED:
-										'bg-purple-100 text-purple-800 hover:bg-purple-100/80',
-									BYPASSED:
-										'bg-amber-100 text-amber-800 hover:bg-amber-100/80',
+								// Bypassed people at a print step are awaiting print too;
+								// archived badges are printed and filed.
+								const awaiting =
+									'bg-orange-100 text-orange-800 hover:bg-orange-100/80'
+								const printed =
+									'bg-green-100 text-green-800 hover:bg-green-100/80'
+								const archived =
+									'bg-purple-100 text-purple-800 hover:bg-purple-100/80'
+								const statuses: Record<string, [string, string]> = {
+									INPROGRESS: ['Awaiting print', awaiting],
+									BYPASSED: ['Awaiting print', awaiting],
+									PRINTED: ['Printed', printed],
+									COLLECTED: ['Archived', archived],
+									ARCHIVED: ['Archived', archived],
 								}
-								const label =
-									participant.status === 'INPROGRESS'
-										? 'Awaiting Print'
-										: participant.status
+								const [label, className] = statuses[participant.status] ?? [
+									participant.status,
+									'',
+								]
 								return (
-									<Badge
-										className={
-											statusStyles[
-												participant.status as keyof typeof statusStyles
-											] ?? ''
-										}
-									>
+									<Badge className={className}>
 										{label}
-										{participant.reprintCount > 0 && ` (${participant.reprintCount})`}
+										{participant.reprintCount > 0 &&
+											` (${participant.reprintCount})`}
 									</Badge>
 								)
 							},
@@ -421,7 +537,6 @@ export default function PrinterRequestsRoute() {
 						// },
 					]}
 					status={data.status}
-
 					keyExtractor={participant => participant.id}
 					totalPages={totalPages}
 					currentPage={currentPage}
@@ -434,6 +549,87 @@ export default function PrinterRequestsRoute() {
 			<Outlet />
 		</div>
 	)
+}
+
+/**
+ * The Status filter: awaiting print, or printed in a window (null for any
+ * time). Old INPROGRESS / BYPASSED / PRINTED links still work.
+ */
+function parseStatusFilter(
+	value: string | null,
+):
+	| { kind: 'all' }
+	| { kind: 'awaiting' }
+	| { kind: 'printed'; window: { gte: Date; lt?: Date } | null } {
+	const today = startOfDay(new Date())
+	switch (value) {
+		case 'awaiting':
+		case 'INPROGRESS':
+		case 'BYPASSED':
+			return { kind: 'awaiting' }
+		case 'printed':
+		case 'PRINTED':
+			return { kind: 'printed', window: null }
+		case 'printed-today':
+			return { kind: 'printed', window: { gte: today } }
+		case 'printed-yesterday':
+			return { kind: 'printed', window: { gte: subDays(today, 1), lt: today } }
+		case 'printed-week':
+			return {
+				kind: 'printed',
+				window: { gte: startOfWeek(today, { weekStartsOn: 1 }) },
+			}
+		case 'printed-month':
+			return { kind: 'printed', window: { gte: startOfMonth(today) } }
+		default:
+			return { kind: 'all' }
+	}
+}
+
+/**
+ * Like filterAndPaginate, but in the order of `orderedIds` (latest print
+ * first), which Prisma can't sort by. The ids are one per person printed in
+ * the window, so this stays small.
+ */
+async function paginateInOrder(
+	{ request, searchFields, filterFields, where, select }: any,
+	orderedIds: string[],
+) {
+	const url = new URL(request.url)
+	const page = parseInt(url.searchParams.get('page') || '1', 10)
+	const pageSizeParam = url.searchParams.get('pageSize')
+	const defaultPageSize = await getSetting<number>(
+		SettingKeys.PAGINATION_DEFAULT_PAGE_SIZE,
+	)
+	const pageSize =
+		pageSizeParam === 'All'
+			? undefined
+			: parseInt(pageSizeParam || String(defaultPageSize), 10)
+
+	const matching = new Set(
+		(
+			await prisma.participant.findMany({
+				where: buildFilteredWhere({ url, searchFields, filterFields, where }),
+				select: { id: true },
+			})
+		).map(p => p.id),
+	)
+	const ids = orderedIds.filter(id => matching.has(id))
+	const pageIds = pageSize
+		? ids.slice((page - 1) * pageSize, page * pageSize)
+		: ids
+	const rows = await prisma.participant.findMany({
+		where: { id: { in: pageIds } },
+		select,
+	})
+	const byId = new Map(rows.map((r: any) => [r.id, r]))
+	return {
+		data: pageIds.map(id => byId.get(id)).filter(Boolean),
+		totalPages: pageSize ? Math.ceil(ids.length / pageSize) : 1,
+		currentPage: page,
+		defaultPageSize,
+		pageSizeOptions: [10, 20, 50, 100],
+	}
 }
 
 export function ErrorBoundary() {

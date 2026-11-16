@@ -42,7 +42,7 @@ import {
 } from '~/utils/misc'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { redirectWithToast } from '~/utils/toast.server'
-import { ISSUED_STATUSES, isIssued } from '~/utils/badge-status'
+import { ISSUED_STATUSES, isIssued, REPRINT_REMARK_PREFIX } from '~/utils/badge-status'
 
 const REPRINT_REASONS = [
 	{ value: 'Print quality issue', name: 'Print quality issue' },
@@ -138,7 +138,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			userId: user.id,
 			action: Action.PRINT,
 			result: 'SUCCESS',
-			remarks: `Printer reprint: ${reason} (reprint #${participant.reprintCount + 1})`,
+			remarks: `${REPRINT_REMARK_PREFIX} ${reason} (reprint #${participant.reprintCount + 1})`,
 		},
 	})
 
