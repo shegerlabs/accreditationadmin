@@ -154,7 +154,6 @@ export default function ValidatorActivityReport() {
 								<TableHead className="text-right">APPROVE</TableHead>
 								<TableHead className="text-right">REJECT</TableHead>
 								<TableHead className="text-right">PRINT</TableHead>
-								<TableHead className="text-right">COLLECT</TableHead>
 								<TableHead className="text-right">BYPASS</TableHead>
 							</TableRow>
 						</TableHeader>
@@ -171,9 +170,6 @@ export default function ValidatorActivityReport() {
 									</TableCell>
 									<TableCell className="text-right">
 										{validator.actions['PRINT'] ?? 0}
-									</TableCell>
-									<TableCell className="text-right">
-										{validator.actions['COLLECT'] ?? 0}
 									</TableCell>
 									<TableCell className="text-right">
 										{validator.actions['BYPASS'] ?? 0}

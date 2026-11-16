@@ -42,7 +42,7 @@ export const SETUP_SECTIONS = [
 	{
 		key: 'access',
 		title: 'Staff access',
-		help: 'Which step each validator, printer and dispatcher works on.',
+		help: 'Which step each reviewer, validator and printer works on.',
 	},
 ] as const
 
@@ -478,7 +478,7 @@ export function sectionSkipReason(ctx: SetupContext, key: SetupSectionKey) {
 	const { existing } = ctx
 	if (ctx.mode === 'edit') {
 		return key === 'access' && ctx.staff.length === 0
-			? 'This tenant has no validator, printer or dispatcher accounts yet.'
+			? 'This tenant has no reviewer, validator or printer accounts yet.'
 			: null
 	}
 	if (key === 'types' && existing.typeIds.length > 0) {
@@ -513,7 +513,7 @@ export function sectionSkipReason(ctx: SetupContext, key: SetupSectionKey) {
 		return 'Every email has already been customised for this event.'
 	}
 	if (key === 'access' && ctx.staff.length === 0) {
-		return 'This tenant has no validator, printer or dispatcher accounts yet.'
+		return 'This tenant has no reviewer, validator or printer accounts yet.'
 	}
 	return null
 }

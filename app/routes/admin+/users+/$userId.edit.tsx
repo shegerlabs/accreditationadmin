@@ -32,11 +32,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	invariantResponse(user, 'Not Found', { status: 404 })
 
 	// Global admins can assign admin, tenant, user roles
-	// Tenant admins can assign user, focal, validator, printer, dispatcher roles
+	// Tenant admins can assign user, focal, validator, printer, checkpoint roles
 	const roles = await prisma.role.findMany({
 		where: currentUser.isGlobalAdmin
 			? { scope: { in: ['GLOBAL', 'TENANT'] } }
-			: { name: { in: ['user', 'focal', 'validator', 'printer', 'dispatcher', 'checkpoint'] } },
+			: { name: { in: ['user', 'focal', 'validator', 'printer', 'checkpoint'] } },
 		orderBy: { name: 'asc' },
 	})
 

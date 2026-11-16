@@ -109,7 +109,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	// Also preserve any roles they cannot modify (like 'tenant', 'admin', etc.)
 	if (!currentUser.isGlobalAdmin) {
 		const allowedRoles = await prisma.role.findMany({
-			where: { name: { in: ['user', 'focal', 'validator', 'printer', 'dispatcher', 'checkpoint'] } },
+			where: { name: { in: ['user', 'focal', 'validator', 'printer', 'checkpoint'] } },
 			select: { id: true },
 		})
 		const allowedRoleIds = new Set(allowedRoles.map(r => r.id))

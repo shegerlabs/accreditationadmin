@@ -146,7 +146,7 @@ const strongRateLimit = rateLimit({
 const generalRateLimit = rateLimit(rateLimitDefault)
 
 app.use((req, res, next) => {
-	const excludedPaths = ['/admin', '/printer', '/validator', '/dispatcher']
+	const excludedPaths = ['/admin', '/printer', '/validator']
 	if (excludedPaths.some(path => req.path.startsWith(path))) {
 		return next()
 	}

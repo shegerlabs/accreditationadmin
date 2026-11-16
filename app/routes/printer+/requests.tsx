@@ -260,7 +260,6 @@ export default function PrinterRequestsRoute() {
 									{ value: 'all', label: 'All' },
 									{ value: 'INPROGRESS', label: 'Awaiting Print' },
 									{ value: 'PRINTED', label: 'Printed' },
-									{ value: 'COLLECTED', label: 'Collected' },
 									{ value: 'BYPASSED', label: 'Bypassed' },
 								],
 							},

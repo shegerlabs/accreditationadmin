@@ -236,7 +236,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		passportExpiry: participant.passportExpiry,
 		attendClosedSession: participant.attendClosedSession,
 		attendExecutiveCouncilClosedSession: participant.attendExecutiveCouncilClosedSession,
-		profileUrl: badgeQrUrl(baseUrl, 'requests', participant),
+		profileUrl: badgeQrUrl(baseUrl, participant),
 	}
 
 	const professionalInfo = {

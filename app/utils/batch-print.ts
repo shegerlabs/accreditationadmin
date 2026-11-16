@@ -1,5 +1,5 @@
-// Printing a run of badges as one PDF: box runs and batch reprints share the
-// badge shape, the pre-print checks and the confirm dialog. No Prisma here, so
+// Printing a run of badges as one PDF: the badge shape, the pre-print checks
+// and the confirm dialog. No Prisma here, so
 // the client can use it.
 import type { BadgeElement } from '~/components/badge-designer'
 
@@ -44,8 +44,6 @@ export type PrintBadge = {
 	/** Null, or no elements: the badge prints on the old fixed layout. */
 	template: PrintTemplate | null
 	problems: BadgeProblems
-	/** Which reprint this is (1 = first reprint); null for a first print. */
-	reprintNumber: number | null
 }
 
 /**

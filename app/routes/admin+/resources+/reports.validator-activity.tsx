@@ -86,7 +86,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				Approve: v.actions['APPROVE'] ?? 0,
 				Reject: v.actions['REJECT'] ?? 0,
 				Print: v.actions['PRINT'] ?? 0,
-				Collect: v.actions['COLLECT'] ?? 0,
 				Bypass: v.actions['BYPASS'] ?? 0,
 			}))
 
@@ -107,7 +106,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				Approve: v.actions['APPROVE'] ?? 0,
 				Reject: v.actions['REJECT'] ?? 0,
 				Print: v.actions['PRINT'] ?? 0,
-				Collect: v.actions['COLLECT'] ?? 0,
 				Bypass: v.actions['BYPASS'] ?? 0,
 			}))
 

@@ -85,7 +85,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					}
 
 					// Check if user has an allowed role (not just 'user' or 'focal')
-					const allowedRoles = ['admin', 'tenant', 'validator', 'reviewer', 'printer', 'dispatcher', 'checkpoint']
+					const allowedRoles = ['admin', 'tenant', 'validator', 'reviewer', 'printer', 'checkpoint']
 					const userWithRoles = await prisma.user.findUnique({
 						where: { id: session.userId },
 						select: { roles: { select: { name: true } } },

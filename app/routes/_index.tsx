@@ -18,10 +18,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		throw redirect('/printer/requests')
 	}
 
-	if (userHasRoles(user, ['dispatcher'])) {
-		throw redirect('/dispatcher/requests')
-	}
-
 	if (userHasRoles(user, ['checkpoint'])) {
 		throw redirect('/checker/scan')
 	}

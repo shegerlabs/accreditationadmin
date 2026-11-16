@@ -46,9 +46,6 @@ export async function processParticipant(
 		case Action.PRINT:
 			outcome = await handlePrint(participant, userId)
 			break
-		case Action.COLLECT:
-			outcome = handleCollect(participant, userId)
-			break
 		case Action.NOTIFY:
 			outcome = await handleNotify(participant)
 			break
@@ -175,22 +172,6 @@ async function handlePrint(
 	}
 }
 
-function handleCollect(
-	participant: Participant & { step: Step },
-	userId: string,
-): Outcome {
-	// COLLECT does NOT move to next step - participant stays in current step
-	// with COLLECTED status. Admin will later archive them.
-	return {
-		data: { status: 'COLLECTED' },
-		email: {
-			participantId: participant.id,
-			trigger: 'BADGE_COLLECTED',
-			triggeredById: userId,
-		},
-	}
-}
-
 async function handleNotify(
 	participant: Participant & { step: Step },
 ): Promise<Outcome> {
@@ -210,8 +191,6 @@ function getRemarksByAction(action: Action): string {
 			return 'Request rejected and returned to applicant for revision'
 		case Action.PRINT:
 			return 'Badge printed and ready for collection'
-		case Action.COLLECT:
-			return 'Badge collected by participant'
 		case Action.NOTIFY:
 			return 'Applicant notified of accreditation status'
 		case Action.ARCHIVE:

@@ -9,14 +9,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const currentUser = await requireAdminAccess(request)
 
 	// Global admins can assign admin, tenant, user roles
-	// Tenant admins can assign user, focal, validator, printer, dispatcher roles
+	// Tenant admins can assign user, focal, validator, printer, checkpoint roles
 	const roles = currentUser.isGlobalAdmin
 		? await prisma.role.findMany({
 				where: { scope: { in: ['GLOBAL', 'TENANT'] } },
 				orderBy: { name: 'asc' },
 			})
 		: await prisma.role.findMany({
-				where: { name: { in: ['user', 'focal', 'validator', 'printer', 'dispatcher', 'checkpoint'] } },
+				where: { name: { in: ['user', 'focal', 'validator', 'printer', 'checkpoint'] } },
 				orderBy: { name: 'asc' },
 			})
 

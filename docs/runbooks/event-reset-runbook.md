@@ -469,12 +469,13 @@ Retention is an **allow-list of usernames** in `scripts/lib/users.ts`:
 
 ```
 admin  tenantadmin  firstvalidator  secondvalidator
-badgeprinter  dispatcher  checker  focal
+badgeprinter  checker  focal
 ```
 
 Every other `User` row is deleted, along with its password, sessions, role
-assignments and `UserEventAccess` rows. On the current database that is **519
-deleted, 8 retained**.
+assignments and `UserEventAccess` rows. On the database at the time of writing
+that was **519 deleted, 8 retained**; `dispatcher` was retained then, before the
+role was removed on 2026-11-16.
 
 This supersedes the earlier role-based rule ("delete accounts whose only role is
 `user`"), which kept 188 accounts — including 159 focal points belonging to the

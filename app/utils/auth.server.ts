@@ -855,7 +855,7 @@ export async function getUserAccessibleStepIds(
 			stepId: { not: null },
 			role: {
 				name: {
-					in: roleNames ?? ['validator', 'reviewer', 'printer', 'dispatcher'],
+					in: roleNames ?? ['validator', 'reviewer', 'printer'],
 				},
 			},
 		},
@@ -880,7 +880,7 @@ export async function getUserAccessibleStepInfo(
 			stepId: { not: null },
 			role: {
 				name: {
-					in: roleNames ?? ['validator', 'reviewer', 'printer', 'dispatcher'],
+					in: roleNames ?? ['validator', 'reviewer', 'printer'],
 				},
 			},
 		},

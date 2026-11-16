@@ -1,6 +1,6 @@
 import { BlobProvider, Document } from '@react-pdf/renderer'
 import { Form, Link, useNavigation } from '@remix-run/react'
-import { AlertTriangle, Printer, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Printer } from 'lucide-react'
 import QRCode from 'qrcode'
 import * as React from 'react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
@@ -52,10 +52,6 @@ function toBadgeData(b: Designed): ParticipantBadgeData {
 		executiveCouncilClosedSession: b.executiveCouncilClosedSession,
 		profileUrl: b.profileUrl,
 		photoUrl: b.photoUrl,
-		...(b.reprintNumber !== null && {
-			isReprint: true,
-			reprintCount: b.reprintNumber,
-		}),
 	}
 }
 
@@ -381,10 +377,9 @@ export function BatchPrintDialog({
 	empty,
 	cancelTo,
 	fields,
-	reprint = false,
 }: {
 	badges: PrintBadge[]
-	/** What is being printed, under the title: a box, or "Reprints". */
+	/** What is being printed, under the title: a box or smaller box. */
 	name: string
 	/** Shown after the name, e.g. "the people you selected". */
 	context?: string
@@ -396,7 +391,6 @@ export function BatchPrintDialog({
 	empty: string
 	cancelTo: string
 	fields?: React.ReactNode
-	reprint?: boolean
 }) {
 	const navigation = useNavigation()
 	const busy = navigation.state === 'submitting'
@@ -421,19 +415,17 @@ export function BatchPrintDialog({
 	const sample = toPrint[0]
 	const sampleRun = React.useMemo(() => (sample ? [sample] : []), [sample])
 
-	const verb = reprint ? 'Reprint' : 'Print'
 	const n = toPrint.length
 	const title = testing
 		? 'Test print'
 		: came
 			? 'Which badges came out right?'
-			: `${verb} ${n} ${n === 1 ? 'badge' : 'badges'}`
+			: `Print ${n} ${n === 1 ? 'badge' : 'badges'}`
 	const description = testing
 		? `Print this one badge (${sample?.firstName} ${sample?.familyName}) to check the card lines up and the stock is right. Nothing is marked printed.`
 		: came
 			? 'Only ticked badges are marked printed.'
 			: `Print from the preview, then confirm below.${notes ? ` ${notes}` : ''}`
-	const Icon = reprint ? RefreshCw : Printer
 
 	return (
 		<Dialog open onOpenChange={() => {}}>
@@ -445,19 +437,8 @@ export function BatchPrintDialog({
 				onInteractOutside={e => e.preventDefault()}
 			>
 				<DialogHeader className="flex-shrink-0">
-					<div
-						className={cn(
-							'mx-auto flex h-12 w-12 items-center justify-center rounded-full',
-							reprint ? 'bg-amber-100' : 'bg-emerald-100',
-						)}
-					>
-						<Icon
-							className={cn(
-								'h-6 w-6',
-								reprint ? 'text-amber-600' : 'text-green-600',
-							)}
-							aria-hidden="true"
-						/>
+					<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+						<Printer className="h-6 w-6 text-green-600" aria-hidden="true" />
 					</div>
 					<DialogTitle className="text-center">{title}</DialogTitle>
 					<p className="break-words text-center font-medium">

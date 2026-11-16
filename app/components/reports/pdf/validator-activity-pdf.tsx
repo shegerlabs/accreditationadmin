@@ -73,12 +73,11 @@ export function ValidatorActivityPdf({
 			<PdfSection title="Validator Workload">
 				<PdfTable
 					columns={[
-						{ key: 'name', header: 'Validator', width: '25%' },
+						{ key: 'name', header: 'Validator', width: '37%' },
 						{ key: 'total', header: 'Total', width: '12%' },
 						{ key: 'approve', header: 'Approve', width: '12%' },
 						{ key: 'reject', header: 'Reject', width: '12%' },
 						{ key: 'print', header: 'Print', width: '12%' },
-						{ key: 'collect', header: 'Collect', width: '12%' },
 						{ key: 'bypass', header: 'Bypass', width: '12%' },
 					]}
 					data={data.validatorActivity.slice(0, 20).map(v => ({
@@ -87,7 +86,6 @@ export function ValidatorActivityPdf({
 						approve: v.actions['APPROVE'] ?? 0,
 						reject: v.actions['REJECT'] ?? 0,
 						print: v.actions['PRINT'] ?? 0,
-						collect: v.actions['COLLECT'] ?? 0,
 						bypass: v.actions['BYPASS'] ?? 0,
 					}))}
 				/>

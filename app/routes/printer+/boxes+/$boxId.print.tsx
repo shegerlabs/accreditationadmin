@@ -50,7 +50,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const badges = await loadPrintBadges({
 		ids: ready.map(p => p.id),
 		baseUrl,
-		path: 'requests',
 	})
 
 	return json({

@@ -24,7 +24,7 @@ import { requireUserWithRoles } from '~/utils/auth.server'
 import { validateCSRF } from '~/utils/csrf.server'
 import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
-import { EMAIL_TEMPLATE_DEFAULTS } from '~/utils/participant-email'
+import { emailLogLabel } from '~/utils/participant-email'
 import { resendEmail } from '~/utils/participant-email.server'
 import { redirectWithToast } from '~/utils/toast.server'
 
@@ -489,7 +489,7 @@ export default function ParticipantHistoryRoute() {
 									<div className="min-w-0 flex-1">
 										<div className="flex flex-wrap items-center gap-2">
 											<span className="font-medium">
-												{EMAIL_TEMPLATE_DEFAULTS[email.trigger].label}
+												{emailLogLabel(email.trigger)}
 											</span>
 											<Badge className={emailStatusStyles[email.status]}>{email.status}</Badge>
 										</div>

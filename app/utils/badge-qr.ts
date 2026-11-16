@@ -4,10 +4,9 @@
 
 export function badgeQrUrl(
 	baseUrl: string,
-	path: 'requests' | 'reprints',
 	participant: { id: string; badgeVersion: number },
 ) {
-	return `${baseUrl}/printer/${path}/${participant.id}?v=${participant.badgeVersion}`
+	return `${baseUrl}/printer/requests/${participant.id}?v=${participant.badgeVersion}`
 }
 
 /**
@@ -22,7 +21,7 @@ export function parseBadgeQr(data: string) {
 		const id = data.trim()
 		return id ? { id, version: null } : null
 	}
-	// Reprinted badges have pointed at /printer/reprints/ as well as /printer/requests/.
+	// Badges reprinted from the old reprint queue point at /printer/reprints/.
 	const match = parsed.pathname.match(/\/(?:requests|reprints)\/([^/]+)$/)
 	if (!match) return null
 	const v = Number(parsed.searchParams.get('v'))

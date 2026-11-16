@@ -33,7 +33,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		'firstvalidator',
 		'secondvalidator',
 		'badgeprinter',
-		'dispatcher',
 		'tenantadmin',
 	]
 

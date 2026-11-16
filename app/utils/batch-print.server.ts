@@ -57,18 +57,13 @@ async function loadTemplates(eventIds: string[], typeIds: string[]) {
 	)
 }
 
-/**
- * Everything needed to render these participants' badges, in the order given.
- * `path` decides where the QR code points: reprinted badges use /reprints/.
- */
+/** Everything needed to render these participants' badges, in the order given. */
 export async function loadPrintBadges({
 	ids,
 	baseUrl,
-	path,
 }: {
 	ids: string[]
 	baseUrl: string
-	path: 'requests' | 'reprints'
 }): Promise<PrintBadge[]> {
 	if (ids.length === 0) return []
 	const participants = await prisma.participant.findMany({
@@ -82,7 +77,6 @@ export async function loadPrintBadges({
 			organization: true,
 			jobTitle: true,
 			badgeVersion: true,
-			reprintCount: true,
 			attendClosedSession: true,
 			attendExecutiveCouncilClosedSession: true,
 			participantTypeId: true,
@@ -126,7 +120,7 @@ export async function loadPrintBadges({
 				eventName: p.event.name,
 				closedSession: p.attendClosedSession,
 				executiveCouncilClosedSession: p.attendExecutiveCouncilClosedSession,
-				profileUrl: badgeQrUrl(baseUrl, path, p),
+				profileUrl: badgeQrUrl(baseUrl, p),
 				photoUrl: getParticipantDocumentFileSrc(p.documents[0]?.id ?? ''),
 				frontUrl: attachment('Front'),
 				backUrl: attachment('Back'),
@@ -135,7 +129,6 @@ export async function loadPrintBadges({
 					template?.badgeTemplate?.elements,
 					!!p.documents[0],
 				),
-				reprintNumber: path === 'reprints' ? p.reprintCount + 1 : null,
 			},
 		]
 	})

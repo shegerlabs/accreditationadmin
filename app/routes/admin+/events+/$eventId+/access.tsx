@@ -25,7 +25,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		'firstvalidator',
 		'secondvalidator',
 		'badgeprinter',
-		'dispatcher',
 		'tenantadmin',
 	]
 

@@ -68,8 +68,8 @@ with participants can't be removed; a badge template
   since a missing row already means "use the default".
 - Staff access: the step each user had on the tenant's previous event; otherwise
   the only step for the user's role in the chosen workflows (printer → Print
-  Badge, dispatcher → Badge Collection). Validators and reviewers have several
-  steps, so they start with no access unless the previous event says otherwise.
+  Badge). Validators and reviewers have several steps, so they start with no
+  access unless the previous event says otherwise.
 
 ## Rejected
 

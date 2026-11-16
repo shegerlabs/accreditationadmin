@@ -26,7 +26,7 @@ import {
 } from './workflow-clone.server'
 
 /** Roles whose users work on workflow steps. */
-export const STAFF_ROLES = ['reviewer', 'validator', 'printer', 'dispatcher']
+export const STAFF_ROLES = ['reviewer', 'validator', 'printer']
 
 /** Interactive transactions default to 5s; cloning ~25 workflows step by step takes longer. */
 export const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 }

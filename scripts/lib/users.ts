@@ -31,7 +31,6 @@ export const RETAINED_USERNAMES = [
 	'firstvalidator',
 	'secondvalidator',
 	'badgeprinter',
-	'dispatcher',
 	'checker',
 	'focal',
 ] as const

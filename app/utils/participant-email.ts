@@ -5,13 +5,11 @@ export type EmailTrigger =
 	| 'REQUEST_RECEIVED'
 	| 'RETURNED_FOR_CORRECTION'
 	| 'BADGE_READY'
-	| 'BADGE_COLLECTED'
 
 export const EMAIL_TRIGGERS: EmailTrigger[] = [
 	'REQUEST_RECEIVED',
 	'RETURNED_FOR_CORRECTION',
 	'BADGE_READY',
-	'BADGE_COLLECTED',
 ]
 
 type TemplateDefinition = {
@@ -66,17 +64,18 @@ Your accreditation for {eventName} has been approved and your badge has been pri
 
 Please collect it at the accreditation desk. Bring your passport and quote your registration code: {registrationCode}`,
 	},
-	BADGE_COLLECTED: {
-		label: 'Badge collected',
-		description: 'Sent when the dispatcher records the badge as collected. Off by default.',
-		enabled: false,
-		subject: '{eventName}: your badge has been collected',
-		body: `Dear {fullName},
+}
 
-This confirms that your badge for {eventName} (registration code {registrationCode}) has been collected.
-
-If you did not collect it, please contact the accreditation desk immediately.`,
-	},
+/**
+ * The label for a logged email's trigger. Old logs can hold "badge collected",
+ * which was sent by the dispatcher role (since removed).
+ */
+export function emailLogLabel(trigger: string) {
+	return trigger in EMAIL_TEMPLATE_DEFAULTS
+		? EMAIL_TEMPLATE_DEFAULTS[trigger as EmailTrigger].label
+		: trigger === 'BADGE_COLLECTED'
+			? 'Badge collected'
+			: trigger
 }
 
 export const EMAIL_PLACEHOLDERS = {

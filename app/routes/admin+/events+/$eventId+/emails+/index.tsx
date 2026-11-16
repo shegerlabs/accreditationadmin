@@ -28,6 +28,7 @@ import { prisma } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/misc'
 import {
 	EMAIL_TEMPLATE_DEFAULTS,
+	emailLogLabel,
 	EMAIL_TRIGGERS,
 } from '~/utils/participant-email'
 import {
@@ -304,7 +305,7 @@ export default function EventEmailLogRoute() {
 											{email.participant.familyName}
 										</span>
 										<Badge variant="outline">
-											{EMAIL_TEMPLATE_DEFAULTS[email.trigger].label}
+											{emailLogLabel(email.trigger)}
 										</Badge>
 										<Badge className={statusStyles[email.status]}>
 											{email.status}
