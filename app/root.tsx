@@ -34,6 +34,10 @@ import { GeneralErrorBoundary } from './components/error-boundary'
 import { useToast } from './components/toaster'
 import { Icon, href as iconsHref } from './components/ui/icon'
 import tailwindStyleSheetUrl from './styles/tailwind.css?url'
+// Sonner also injects these into <head> at load, but React drops injected
+// tags when it re-renders the document after a hydration error, leaving
+// toasts unstyled. Linked here, they come back with the document.
+import sonnerStyleSheetUrl from 'sonner/dist/styles.css?url'
 import { csrf } from './utils/csrf.server'
 import { getEnv } from './utils/env.server'
 import { honeypot } from './utils/honeypot.server'
@@ -849,6 +853,7 @@ export const links: LinksFunction = () => {
 	return [
 		{ rel: 'prefetch', href: iconsHref, as: 'image' },
 		{ rel: 'icon', type: 'image/svg+xml', href: faviconAssetUrl },
+		{ rel: 'stylesheet', href: sonnerStyleSheetUrl },
 		{ rel: 'stylesheet', href: tailwindStyleSheetUrl },
 	].filter(Boolean)
 }
