@@ -233,6 +233,11 @@ function BoxEditorDialog({
 	const here = useHere()
 	const [d, setD] = React.useState(() => draftOf(box))
 	const set = (patch: Partial<Draft>) => setD(prev => ({ ...prev, ...patch }))
+	const [someTypes, setSomeTypes] = React.useState(
+		d.participantTypeIds.length > 0,
+	)
+	// "Only some types" with none ticked would quietly save as every type.
+	const needsType = d.hasRule && someTypes && !d.participantTypeIds.length
 
 	const catchAll = isCatchAll(d)
 	const pool = d.participantTypeIds.length
@@ -251,12 +256,13 @@ function BoxEditorDialog({
 		box.lockedInBox > 0 &&
 		(d.splitBy !== box.splitBy ||
 			(cappable && (cap === null) !== (box.maxPerBox === null)))
-	const canSave = d.name.trim().length > 0 && d.batchSize >= 1 && capValid
+	const canSave =
+		d.name.trim().length > 0 && d.batchSize >= 1 && capValid && !needsType
 
 	return (
 		<Dialog open onOpenChange={o => !o && !busy && onClose()}>
-			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-				<DialogHeader>
+			<DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 p-0 sm:max-w-xl">
+				<DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6">
 					<DialogTitle>{box ? 'Edit box' : 'New box'}</DialogTitle>
 					<DialogDescription>
 						Start from a rule, from nobody, or both. You can add people or leave
@@ -267,7 +273,7 @@ function BoxEditorDialog({
 					method="POST"
 					action={here}
 					id="box-editor"
-					className="space-y-5"
+					className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5"
 				>
 					<Hidden
 						fields={{
@@ -337,46 +343,13 @@ function BoxEditorDialog({
 
 					{d.hasRule && (
 						<>
-							<fieldset className="space-y-2">
-								<legend className="text-sm font-medium">
-									Participant types
-								</legend>
-								<p className="text-xs text-muted-foreground">
-									Tick none to take every type. A person goes in the first box
-									in the list whose rule they match.
-								</p>
-								{types.length === 0 ? (
-									<p className="text-sm text-muted-foreground">
-										This event has no participant types yet.
-									</p>
-								) : (
-									<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-										{types.map(t => (
-											<label
-												key={t.id}
-												className="flex items-center gap-2 text-sm"
-											>
-												<Checkbox
-													checked={d.participantTypeIds.includes(t.id)}
-													onCheckedChange={c =>
-														set({
-															participantTypeIds: c
-																? [...d.participantTypeIds, t.id]
-																: d.participantTypeIds.filter(x => x !== t.id),
-														})
-													}
-												/>
-												<span className="min-w-0 flex-1 truncate">
-													{t.name}
-												</span>
-												<span className="text-xs tabular-nums text-muted-foreground">
-													{t.total}
-												</span>
-											</label>
-										))}
-									</div>
-								)}
-							</fieldset>
+							<TypePicker
+								types={types}
+								value={d.participantTypeIds}
+								onChange={participantTypeIds => set({ participantTypeIds })}
+								some={someTypes}
+								onSomeChange={setSomeTypes}
+							/>
 							<div className="flex items-start gap-2 text-sm">
 								<Checkbox
 									id="box-closed"
@@ -486,13 +459,15 @@ function BoxEditorDialog({
 
 					<FormError error={fetcher.data?.error} />
 				</fetcher.Form>
-				<DialogFooter className="items-center gap-2 sm:justify-between">
+				<DialogFooter className="shrink-0 items-center gap-2 border-t px-6 py-4 sm:justify-between">
 					<span className="text-sm tabular-nums text-muted-foreground">
 						{!d.hasRule
 							? 'People are added by hand'
-							: catchAll
-								? 'Takes everyone not in a box above'
-								: `${matches} ${matches === 1 ? 'participant matches' : 'participants match'} the rule`}
+							: needsType
+								? 'Tick at least one type'
+								: catchAll
+									? 'Takes everyone not in a box above'
+									: `${matches} ${matches === 1 ? 'participant matches' : 'participants match'} the rule`}
 					</span>
 					<div className="flex gap-2">
 						<Button variant="outline" onClick={onClose} disabled={busy}>
@@ -505,6 +480,151 @@ function BoxEditorDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	)
+}
+
+/**
+ * Every type, or a ticked subset. "Every type" is stored as no ticks, but
+ * offered as its own choice so nobody has to know that.
+ */
+function TypePicker({
+	types,
+	value,
+	onChange,
+	some,
+	onSomeChange,
+}: {
+	types: TypeCount[]
+	value: string[]
+	onChange: (ids: string[]) => void
+	some: boolean
+	onSomeChange: (some: boolean) => void
+}) {
+	const [query, setQuery] = React.useState('')
+	const [tickedOnly, setTickedOnly] = React.useState(false)
+	const q = query.trim().toLowerCase()
+	const shown = types.filter(
+		t =>
+			t.name.toLowerCase().includes(q) && (!tickedOnly || value.includes(t.id)),
+	)
+	const people = types
+		.filter(t => value.includes(t.id))
+		.reduce((n, t) => n + t.total, 0)
+
+	return (
+		<fieldset className="space-y-2">
+			<legend className="text-sm font-medium">Participant types</legend>
+			{types.length === 0 ? (
+				<p className="text-sm text-muted-foreground">
+					This event has no participant types yet.
+				</p>
+			) : (
+				<>
+					<div className="inline-flex rounded-md bg-muted p-1 text-sm">
+						{[
+							{ v: false, label: 'Every type' },
+							{ v: true, label: 'Only some types' },
+						].map(o => (
+							<button
+								key={o.label}
+								type="button"
+								aria-pressed={some === o.v}
+								onClick={() => {
+									onSomeChange(o.v)
+									if (!o.v) onChange([])
+								}}
+								className={cn(
+									'h-8 rounded-sm px-3 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+									some === o.v
+										? 'bg-background font-medium shadow-sm'
+										: 'text-muted-foreground hover:text-foreground',
+								)}
+							>
+								{o.label}
+							</button>
+						))}
+					</div>
+					{some && (
+						<div className="overflow-hidden rounded-md border">
+							<div className="flex items-center gap-2 border-b px-3">
+								<Search
+									className="h-4 w-4 shrink-0 text-muted-foreground"
+									aria-hidden="true"
+								/>
+								<input
+									value={query}
+									onChange={e => setQuery(e.target.value)}
+									placeholder="Find a type"
+									aria-label="Find a type"
+									spellCheck={false}
+									autoComplete="off"
+									className="h-10 min-w-0 flex-1 bg-transparent text-base outline-none sm:text-sm"
+								/>
+								<Checkbox
+									id="box-ticked-only"
+									checked={tickedOnly}
+									onCheckedChange={c => setTickedOnly(c === true)}
+								/>
+								<Label
+									htmlFor="box-ticked-only"
+									className="shrink-0 cursor-pointer text-xs font-normal text-muted-foreground"
+								>
+									Ticked only
+								</Label>
+							</div>
+							<ul className="max-h-[min(13rem,28dvh)] overflow-y-auto overscroll-contain py-1">
+								{shown.map(t => (
+									<li key={t.id}>
+										<label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent">
+											<Checkbox
+												checked={value.includes(t.id)}
+												onCheckedChange={c =>
+													onChange(
+														c
+															? [...value, t.id]
+															: value.filter(x => x !== t.id),
+													)
+												}
+											/>
+											<span className="min-w-0 flex-1 truncate">{t.name}</span>
+											<span className="text-xs tabular-nums text-muted-foreground">
+												{t.total}
+											</span>
+										</label>
+									</li>
+								))}
+								{!shown.length && (
+									<li className="px-3 py-6 text-center text-sm text-muted-foreground">
+										{tickedOnly && !value.length
+											? 'Nothing ticked yet'
+											: `No type matches “${query.trim()}”`}
+									</li>
+								)}
+							</ul>
+							<div className="flex items-center justify-between border-t bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+								<span className="tabular-nums">
+									{value.length
+										? `${value.length} ticked · ${people} ${people === 1 ? 'person' : 'people'}`
+										: 'Tick at least one type'}
+								</span>
+								{value.length > 0 && (
+									<button
+										type="button"
+										onClick={() => onChange([])}
+										className="hover:text-foreground"
+									>
+										Clear
+									</button>
+								)}
+							</div>
+						</div>
+					)}
+				</>
+			)}
+			<p className="text-xs text-muted-foreground">
+				A person goes in the first box in the list whose rule they match.
+			</p>
+		</fieldset>
 	)
 }
 
