@@ -6,8 +6,6 @@ import {
 	ArrowLeft,
 	Briefcase,
 	Calendar,
-	CheckCircleIcon,
-	CircleDashedIcon,
 	Edit2Icon,
 	FileCheck,
 	FileImage,
@@ -15,20 +13,20 @@ import {
 	EyeIcon,
 	PrinterIcon,
 	RefreshCw,
-	SkipForwardIcon,
 	User,
-	XCircleIcon,
 } from 'lucide-react'
 import { DocumentPreview } from '~/components/document-preview'
 import { Avatar, AvatarFallback, AvatarImage } from '~/components/ui/avatar'
 import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
+import { ApprovalHistory } from '~/components/approval-history'
 import { Card, CardContent } from '~/components/ui/card'
 import {
 	getUserAccessibleStepIds,
 	requireUserWithRoles,
 } from '~/utils/auth.server'
 import { prisma } from '~/utils/db.server'
+import { upcomingSteps } from '~/utils/upcoming-steps.server'
 import { getParticipantDocumentFileSrc, invariantResponse } from '~/utils/misc'
 import { getSetting, SettingKeys } from '~/utils/settings.server'
 import { ISSUED_STATUSES, isIssued } from '~/utils/badge-status'
@@ -227,6 +225,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		status: participant.status,
 		reprintCount: participant.reprintCount,
 		maxReprints,
+		upcoming: await upcomingSteps(participant.step),
 		nextStep: {
 			name: participant.step.name,
 			action: participant.step.action,
@@ -247,6 +246,7 @@ export default function PrinterParticipantProfile() {
 		status,
 		reprintCount,
 		maxReprints,
+		upcoming,
 		nextStep,
 	} = useLoaderData<typeof loader>()
 
@@ -558,79 +558,13 @@ export default function PrinterParticipantProfile() {
 				</Card>
 			</div>
 
-			{/* Approval History */}
-			<div className="mt-6">
-				<h2 className="mb-4 text-lg font-semibold text-slate-800">
-					Approval History
-				</h2>
-				<Card>
-					<CardContent className="p-4">
-						{approvals && approvals.length > 0 ? (
-							<div className="space-y-2">
-								{approvals.map(approval => (
-									<div
-										key={approval.id}
-										className="flex items-center justify-between rounded-lg border bg-white p-3 text-sm shadow-sm"
-									>
-										<div className="flex items-center gap-3">
-											{approval.result === 'SUCCESS' && (
-												<CheckCircleIcon className="h-5 w-5 text-emerald-500" />
-											)}
-											{approval.result === 'FAILURE' && (
-												<XCircleIcon className="h-5 w-5 text-red-500" />
-											)}
-											{approval.result === 'SKIPPED' && (
-												<SkipForwardIcon className="h-5 w-5 text-amber-500" />
-											)}
-											<div>
-												<span className="font-medium text-slate-800">
-													{approval.stepName}
-												</span>
-												<span className="ml-2 text-slate-500">
-													({approval.stepAction})
-												</span>
-											</div>
-										</div>
-										<div className="text-right text-xs text-slate-500">
-											<div className="font-medium">{approval.username}</div>
-											<div>
-												{format(new Date(approval.createdAt), 'MMM d, HH:mm')}
-											</div>
-										</div>
-									</div>
-								))}
-
-								{/* Next Step */}
-								{status === 'INPROGRESS' && (
-									<div className="mt-4 flex items-center justify-between rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/50 p-3 text-sm">
-										<div className="flex items-center gap-3">
-											<CircleDashedIcon className="h-5 w-5 text-slate-500" />
-											<div>
-												<span className="font-medium text-slate-700">
-													{nextStep.name}
-												</span>
-												<span className="ml-2 text-slate-500">
-													({nextStep.action})
-												</span>
-											</div>
-										</div>
-										<div className="text-right text-xs text-slate-600">
-											<div className="font-medium">PENDING</div>
-											<div>Waiting: {nextStep.roleName}</div>
-										</div>
-									</div>
-								)}
-							</div>
-						) : (
-							<div className="space-y-2">
-								<p className="text-sm text-slate-500">
-									No approval actions yet
-								</p>
-							</div>
-						)}
-					</CardContent>
-				</Card>
-			</div>
+			<ApprovalHistory
+				approvals={approvals}
+				status={status}
+				current={nextStep}
+				upcoming={upcoming}
+				tone="slate"
+			/>
 		</div>
 	)
 }
