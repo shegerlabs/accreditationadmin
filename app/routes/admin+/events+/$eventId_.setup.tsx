@@ -245,12 +245,36 @@ export default function EventSetupRoute() {
 						</p>
 					</header>
 
-					<div className="px-6 py-5">
+					<div className="flex flex-col gap-5 px-6 py-5">
+						{step?.key === 'workflows' && ctx.existing.workflows.length > 0 && (
+							<LiveWorkflowsPanel
+								eventId={ctx.event.id}
+								workflows={ctx.existing.workflows.length}
+								editing={editing}
+							/>
+						)}
 						{step ? (
 							skipReason ? (
-								<p className="text-sm text-muted-foreground">
-									{skipReason} Setup leaves this section alone.
-								</p>
+								<div className="flex flex-col items-start gap-3">
+									<p className="text-sm text-muted-foreground">
+										{skipReason} Setup leaves this section alone.
+									</p>
+									{step.key === 'types' && (
+										<>
+											<p className="max-w-prose text-sm text-muted-foreground">
+												To bring more of the tenant&rsquo;s types into this
+												event, use Add types. It creates their workflows, badge
+												templates, staff access and quotas without touching the
+												event&rsquo;s other types.
+											</p>
+											<Button asChild variant="outline" size="sm">
+												<Link to={`/admin/events/${ctx.event.id}/add-type`}>
+													Add types
+												</Link>
+											</Button>
+										</>
+									)}
+								</div>
 							) : (
 								<SectionEditor
 									section={step.key}

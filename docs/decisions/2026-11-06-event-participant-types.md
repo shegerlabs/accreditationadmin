@@ -25,7 +25,8 @@ An explicit list per event: `EventParticipantType (eventId, participantTypeId)`.
   workflow puts its type on the event's list (`scripts/manage-workflow.ts` does
   the same). That keeps the manual way of adding a type to a running event
   working: create the type, then its workflow, then its badge and quotas.
-  Bulk-create stays limited to the list.
+  Bulk-create stays limited to the list; when every listed type has a workflow
+  it points to **Add types** instead.
 - Portal: registration, and changing type on an existing request, only offer
   types that are listed **and** have a workflow for the event. A listed type
   that isn't set up yet is hidden instead of failing on submit.
@@ -42,9 +43,16 @@ An explicit list per event: `EventParticipantType (eventId, participantTypeId)`.
 
 ## Adding a type after setup
 
-`/admin/events/:eventId/add-type` (the event page's **Add type** button) is a
-short wizard for one type: pick it, then workflow, badge template, staff access
-and quotas, written in one transaction.
+`/admin/events/:eventId/add-type` (the event page's **Add types** button) is a
+short wizard for one or more types: tick them, then workflow, badge template,
+staff access and quotas, all written in one transaction. The picked types are
+kept in the URL (`?type=a&type=b`).
+
+- Each type picks its own workflow template (defaulting from the organ profile)
+  and badge template (defaulting to the tenant's default). Both steps have a
+  "for all" picker on top. Each person's step and each quota row are shared: a
+  person gets their step on every picked workflow that has it, and a quota is
+  added for every picked type that doesn't already have one at that level.
 
 - It offers types that aren't on the list yet, and listed types missing a
   workflow or a badge template. Anything the type already has is kept and its
@@ -58,7 +66,8 @@ and quotas, written in one transaction.
 - It refuses events that have no list yet (they go to Set up), since the new
   type would become the event's only one.
 - A banner on the event page names listed types missing a workflow or a badge
-  template, each linking to the wizard for that type.
+  template, each linking to the wizard for that type, plus one link that picks
+  them all.
 
 ## Removing a type
 

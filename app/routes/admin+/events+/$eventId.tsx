@@ -160,7 +160,7 @@ export default function EventDetailsRoute() {
 							<Button asChild variant="outline" size="sm">
 								<Link to={`/admin/events/${event.id}/add-type`}>
 									<Plus className="mr-2 h-4 w-4" />
-									Add type
+									Add types
 								</Link>
 							</Button>
 						)}
@@ -224,6 +224,16 @@ export default function EventDetailsRoute() {
 										className="font-medium underline underline-offset-2 hover:no-underline"
 									>
 										{types.unfinished.length - BANNER_LIMIT} more
+									</Link>
+								</li>
+							)}
+							{types.unfinished.length > 1 && (
+								<li>
+									<Link
+										to={`/admin/events/${event.id}/add-type?${new URLSearchParams(types.unfinished.map(t => ['type', t.id]))}`}
+										className="font-medium underline underline-offset-2 hover:no-underline"
+									>
+										Set up all {types.unfinished.length} together
 									</Link>
 								</li>
 							)}

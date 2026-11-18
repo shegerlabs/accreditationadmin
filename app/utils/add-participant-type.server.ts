@@ -1,5 +1,5 @@
-// Adding one participant type to an event after setup: loading what the event
-// has for it, the default plan, and writing the plan in one transaction.
+// Adding participant types to an event after setup: loading what the event
+// has for them, the default plan, and writing the plan in one transaction.
 // Decision record: docs/decisions/2026-11-06-event-participant-types.md
 
 import { type Prisma } from '@prisma/client'
@@ -7,7 +7,10 @@ import { z } from 'zod'
 import {
 	type AddTypeContext,
 	type AddTypePlan,
+	type SingleTypePlan,
 	defaultAccess,
+	openLevels,
+	planForType,
 } from './add-participant-type'
 import { prisma } from './db.server'
 import { addEventParticipantType } from './event-participant-types.server'
@@ -79,7 +82,7 @@ async function eventStepByUser(eventId: string) {
 
 export async function loadAddTypeContext(
 	event: Event,
-	typeId: string | null,
+	typeIds: string[],
 ): Promise<AddTypeContext> {
 	const [
 		types,
@@ -158,8 +161,8 @@ export async function loadAddTypeContext(
 				id: true,
 				name: true,
 				constraints: {
-					where: { participantTypeId: typeId ?? '' },
-					select: { accessLevel: true },
+					where: { participantTypeId: { in: typeIds } },
+					select: { participantTypeId: true, accessLevel: true },
 				},
 				invitationConstraints: {
 					select: { invitationId: true },
@@ -183,13 +186,22 @@ export async function loadAddTypeContext(
 			],
 		}))
 		.filter(t => !t.listed || t.missing.length > 0)
-	const type = candidates.find(t => t.id === typeId) ?? null
+	const picked = candidates.filter(t => typeIds.includes(t.id))
 
-	const workflow = type ? workflowFor.get(type.id) : undefined
-	const existingAccess = workflow
+	const pickedWorkflows = picked.flatMap(t => {
+		const w = workflowFor.get(t.id)
+		return w ? [w] : []
+	})
+	const existingAccess = pickedWorkflows.length
 		? await prisma.userEventAccess.findMany({
-				where: { eventId: event.id, step: { workflowId: workflow.id } },
-				select: { userId: true, step: { select: { name: true } } },
+				where: {
+					eventId: event.id,
+					step: { workflowId: { in: pickedWorkflows.map(w => w.id) } },
+				},
+				select: {
+					userId: true,
+					step: { select: { name: true, workflowId: true } },
+				},
 			})
 		: []
 
@@ -199,7 +211,22 @@ export async function loadAddTypeContext(
 	return {
 		event: { id: event.id, name: event.name },
 		candidates,
-		type: type && { id: type.id, name: type.name },
+		types: picked.map(t => {
+			const workflow = workflowFor.get(t.id)
+			return {
+				id: t.id,
+				name: t.name,
+				existing: {
+					workflow: workflow ? { steps: toSteps(workflow.steps) } : null,
+					badge: hasBadge.has(t.id),
+					access: existingAccess.flatMap(a =>
+						a.step && a.step.workflowId === workflow?.id
+							? [{ userId: a.userId, stepName: a.step.name }]
+							: [],
+					),
+				},
+			}
+		}),
 		workflowTemplates: templates.map(t => ({
 			id: t.id,
 			name: t.name,
@@ -217,15 +244,15 @@ export async function loadAddTypeContext(
 			id: r.id,
 			name: r.name,
 			invitations: r.invitationConstraints.length,
-			existingLevels: r.constraints.map(c => c.accessLevel),
-		})),
-		existing: {
-			workflow: workflow ? { steps: toSteps(workflow.steps) } : null,
-			badge: type ? hasBadge.has(type.id) : false,
-			access: existingAccess.flatMap(a =>
-				a.step ? [{ userId: a.userId, stepName: a.step.name }] : [],
+			existingLevels: Object.fromEntries(
+				picked.map(t => [
+					t.id,
+					r.constraints
+						.filter(c => c.participantTypeId === t.id)
+						.map(c => c.accessLevel),
+				]),
 			),
-		},
+		})),
 	}
 }
 
@@ -234,21 +261,30 @@ export async function buildAddTypeDefaults(
 	tenantId: string,
 ): Promise<AddTypePlan> {
 	const profile = await profileWorkflowTemplates(tenantId)
-	const fromProfile = ctx.type && profile.get(ctx.type.name)
-	const workflow = ctx.existing.workflow
-		? ''
-		: ((fromProfile &&
-				ctx.workflowTemplates.find(t => t.name === fromProfile)?.id) ??
-			ctx.workflowTemplates[0]?.id ??
-			'')
+	const workflows = Object.fromEntries(
+		ctx.types
+			.filter(t => !t.existing.workflow)
+			.map(t => {
+				const fromProfile = profile.get(t.name)
+				return [
+					t.id,
+					(fromProfile &&
+						ctx.workflowTemplates.find(x => x.name === fromProfile)?.id) ??
+						ctx.workflowTemplates[0]?.id ??
+						'',
+				]
+			}),
+	)
 	return {
-		workflow,
-		badge: ctx.existing.badge ? '' : (ctx.badgeTemplates[0]?.id ?? ''),
-		access: defaultAccess(ctx, workflow),
+		workflows,
+		badges: Object.fromEntries(
+			ctx.types
+				.filter(t => !t.existing.badge)
+				.map(t => [t.id, ctx.badgeTemplates[0]?.id ?? '']),
+		),
+		access: defaultAccess(ctx, workflows),
 		quotas: ctx.restrictions.flatMap(r => {
-			const level = (['OPEN', 'CLOSED'] as const).find(
-				l => !r.existingLevels.includes(l),
-			)
+			const level = openLevels(ctx, r)[0]
 			return level
 				? [
 						{
@@ -265,8 +301,8 @@ export async function buildAddTypeDefaults(
 }
 
 const PlanSchema = z.object({
-	workflow: z.string(),
-	badge: z.string(),
+	workflows: z.record(z.string(), z.string()),
+	badges: z.record(z.string(), z.string()),
 	access: z.array(z.object({ userId: z.string(), stepName: z.string() })),
 	quotas: z.array(
 		z.object({
@@ -293,185 +329,201 @@ export type AddTypeResult = {
 }
 
 /**
- * Write the plan for one type. Nothing the event already has is replaced, the
- * event's other types are never touched, and every id is checked against the
- * event before use.
+ * Write the plan for each picked type, all in one transaction. Nothing the
+ * event already has is replaced, the event's other types are never touched,
+ * and every id is checked against the event before use.
  */
-export async function applyAddType(
+export async function applyAddTypes(
 	plan: z.infer<typeof PlanSchema>,
+	event: Event,
+	types: { id: string; name: string }[],
+) {
+	return prisma.$transaction(async tx => {
+		const results: (AddTypeResult & { id: string; name: string })[] = []
+		for (const type of types)
+			results.push({
+				id: type.id,
+				name: type.name,
+				...(await applyAddTypeTx(tx, planForType(plan, type.id), event, type)),
+			})
+		return results
+	}, TRANSACTION_OPTIONS)
+}
+
+async function applyAddTypeTx(
+	tx: Prisma.TransactionClient,
+	plan: SingleTypePlan,
 	event: Event,
 	type: { id: string; name: string },
 ): Promise<AddTypeResult> {
-	return prisma.$transaction(async tx => {
-		const result: AddTypeResult = {
-			listed: false,
-			workflow: false,
-			badge: false,
-			access: 0,
-			quotas: 0,
-			invitationQuotas: 0,
-		}
+	const result: AddTypeResult = {
+		listed: false,
+		workflow: false,
+		badge: false,
+		access: 0,
+		quotas: 0,
+		invitationQuotas: 0,
+	}
 
-		const alreadyListed = await tx.eventParticipantType.findUnique({
-			where: {
-				eventId_participantTypeId: {
-					eventId: event.id,
-					participantTypeId: type.id,
-				},
-			},
-		})
-		if (!alreadyListed) {
-			await addEventParticipantType(tx, event.id, type.id)
-			result.listed = true
-		}
-
-		let workflow = await tx.workflow.findFirst({
-			where: { eventId: event.id, participantTypeId: type.id },
-			select: { id: true },
-		})
-		if (!workflow && plan.workflow) {
-			const template = await tx.workflowTemplate.findFirst({
-				where: { id: plan.workflow, tenantId: event.tenantId },
-				select: { id: true, name: true },
-			})
-			if (template) {
-				const { workflowId } = await createWorkflowFromTemplate(tx, {
-					tenantId: event.tenantId,
-					eventId: event.id,
-					participantTypeId: type.id,
-					participantTypeName: type.name,
-					templateId: template.id,
-					templateName: template.name,
-				})
-				workflow = { id: workflowId }
-				result.workflow = true
-			}
-		}
-
-		const hasBadge = await tx.template.count({
-			where: {
+	const alreadyListed = await tx.eventParticipantType.findUnique({
+		where: {
+			eventId_participantTypeId: {
 				eventId: event.id,
 				participantTypeId: type.id,
-				templateType: 'BADGE',
+			},
+		},
+	})
+	if (!alreadyListed) {
+		await addEventParticipantType(tx, event.id, type.id)
+		result.listed = true
+	}
+
+	let workflow = await tx.workflow.findFirst({
+		where: { eventId: event.id, participantTypeId: type.id },
+		select: { id: true },
+	})
+	if (!workflow && plan.workflow) {
+		const template = await tx.workflowTemplate.findFirst({
+			where: { id: plan.workflow, tenantId: event.tenantId },
+			select: { id: true, name: true },
+		})
+		if (template) {
+			const { workflowId } = await createWorkflowFromTemplate(tx, {
+				tenantId: event.tenantId,
+				eventId: event.id,
+				participantTypeId: type.id,
+				participantTypeName: type.name,
+				templateId: template.id,
+				templateName: template.name,
+			})
+			workflow = { id: workflowId }
+			result.workflow = true
+		}
+	}
+
+	const hasBadge = await tx.template.count({
+		where: {
+			eventId: event.id,
+			participantTypeId: type.id,
+			templateType: 'BADGE',
+		},
+	})
+	if (!hasBadge && plan.badge) {
+		const badge = await tx.badgeTemplate.findFirst({
+			where: { id: plan.badge, tenantId: event.tenantId },
+			select: { id: true },
+		})
+		if (badge) {
+			await tx.template.create({
+				data: {
+					name: `Badge Template for ${type.name}`,
+					description: `Badge Template for ${type.name}`,
+					tenantId: event.tenantId,
+					eventId: event.id,
+					participantTypeId: type.id,
+					templateType: 'BADGE',
+					badgeTemplateId: badge.id,
+				},
+			})
+			result.badge = true
+		}
+	}
+
+	// Access: only this type's workflow, so the event's other workflows keep
+	// whatever an admin has set on them.
+	if (workflow) {
+		const steps = await tx.step.findMany({
+			where: { workflowId: workflow.id, retiredAt: null },
+			select: {
+				id: true,
+				name: true,
+				roleId: true,
+				role: { select: { name: true } },
 			},
 		})
-		if (!hasBadge && plan.badge) {
-			const badge = await tx.badgeTemplate.findFirst({
-				where: { id: plan.badge, tenantId: event.tenantId },
-				select: { id: true },
-			})
-			if (badge) {
-				await tx.template.create({
-					data: {
-						name: `Badge Template for ${type.name}`,
-						description: `Badge Template for ${type.name}`,
-						tenantId: event.tenantId,
+		const staff = await tx.user.findMany({
+			where: {
+				tenantId: event.tenantId,
+				id: { in: plan.access.map(a => a.userId) },
+			},
+			select: { id: true, roles: { select: { name: true } } },
+		})
+		const rolesOf = new Map(
+			staff.map(u => [u.id, new Set(u.roles.map(r => r.name))]),
+		)
+		const rows: Prisma.UserEventAccessCreateManyInput[] = []
+		for (const { userId, stepName } of plan.access) {
+			const roles = rolesOf.get(userId)
+			if (!stepName || !roles) continue
+			for (const step of steps) {
+				if (
+					step.name === stepName &&
+					step.roleId &&
+					step.role &&
+					roles.has(step.role.name)
+				)
+					rows.push({
+						userId,
 						eventId: event.id,
-						participantTypeId: type.id,
-						templateType: 'BADGE',
-						badgeTemplateId: badge.id,
-					},
-				})
-				result.badge = true
+						roleId: step.roleId,
+						stepId: step.id,
+					})
 			}
 		}
-
-		// Access: only this type's workflow, so the event's other workflows keep
-		// whatever an admin has set on them.
-		if (workflow) {
-			const steps = await tx.step.findMany({
-				where: { workflowId: workflow.id, retiredAt: null },
-				select: {
-					id: true,
-					name: true,
-					roleId: true,
-					role: { select: { name: true } },
-				},
-			})
-			const staff = await tx.user.findMany({
-				where: {
-					tenantId: event.tenantId,
-					id: { in: plan.access.map(a => a.userId) },
-				},
-				select: { id: true, roles: { select: { name: true } } },
-			})
-			const rolesOf = new Map(
-				staff.map(u => [u.id, new Set(u.roles.map(r => r.name))]),
-			)
-			const rows: Prisma.UserEventAccessCreateManyInput[] = []
-			for (const { userId, stepName } of plan.access) {
-				const roles = rolesOf.get(userId)
-				if (!stepName || !roles) continue
-				for (const step of steps) {
-					if (
-						step.name === stepName &&
-						step.roleId &&
-						step.role &&
-						roles.has(step.role.name)
-					)
-						rows.push({
-							userId,
-							eventId: event.id,
-							roleId: step.roleId,
-							stepId: step.id,
-						})
-				}
-			}
-			result.access = (
-				await tx.userEventAccess.createMany({
-					data: rows,
-					skipDuplicates: true,
-				})
-			).count
-		}
-
-		// Quotas: added beside the restriction's others, never replacing one.
-		for (const q of plan.quotas) {
-			if (!q.enabled) continue
-			const restriction = await tx.restriction.findFirst({
-				where: { id: q.restrictionId, eventId: event.id },
-				select: { id: true },
-			})
-			if (!restriction) continue
-			const created = await tx.constraint.createMany({
-				data: [
-					{
-						tenantId: event.tenantId,
-						restrictionId: restriction.id,
-						name: type.name,
-						participantTypeId: type.id,
-						accessLevel: q.accessLevel,
-						quota: q.quota,
-					},
-				],
+		result.access = (
+			await tx.userEventAccess.createMany({
+				data: rows,
 				skipDuplicates: true,
 			})
-			if (created.count === 0) continue
-			result.quotas++
+		).count
+	}
 
-			if (!plan.applyToInvitations) continue
-			const invitations = await tx.invitationConstraint.findMany({
-				where: {
-					sourceRestrictionId: restriction.id,
-					invitation: { eventId: event.id },
+	// Quotas: added beside the restriction's others, never replacing one.
+	for (const q of plan.quotas) {
+		if (!q.enabled) continue
+		const restriction = await tx.restriction.findFirst({
+			where: { id: q.restrictionId, eventId: event.id },
+			select: { id: true },
+		})
+		if (!restriction) continue
+		const created = await tx.constraint.createMany({
+			data: [
+				{
+					tenantId: event.tenantId,
+					restrictionId: restriction.id,
+					name: type.name,
+					participantTypeId: type.id,
+					accessLevel: q.accessLevel,
+					quota: q.quota,
 				},
-				select: { invitationId: true },
-				distinct: ['invitationId'],
-			})
-			result.invitationQuotas += (
-				await tx.invitationConstraint.createMany({
-					data: invitations.map(({ invitationId }) => ({
-						invitationId,
-						participantTypeId: type.id,
-						accessLevel: q.accessLevel,
-						quota: q.quota,
-						sourceRestrictionId: restriction.id,
-					})),
-					skipDuplicates: true,
-				})
-			).count
-		}
+			],
+			skipDuplicates: true,
+		})
+		if (created.count === 0) continue
+		result.quotas++
 
-		return result
-	}, TRANSACTION_OPTIONS)
+		if (!plan.applyToInvitations) continue
+		const invitations = await tx.invitationConstraint.findMany({
+			where: {
+				sourceRestrictionId: restriction.id,
+				invitation: { eventId: event.id },
+			},
+			select: { invitationId: true },
+			distinct: ['invitationId'],
+		})
+		result.invitationQuotas += (
+			await tx.invitationConstraint.createMany({
+				data: invitations.map(({ invitationId }) => ({
+					invitationId,
+					participantTypeId: type.id,
+					accessLevel: q.accessLevel,
+					quota: q.quota,
+					sourceRestrictionId: restriction.id,
+				})),
+				skipDuplicates: true,
+			})
+		).count
+	}
+
+	return result
 }

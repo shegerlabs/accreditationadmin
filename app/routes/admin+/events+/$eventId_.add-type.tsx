@@ -1,5 +1,5 @@
-// Add one participant type to an event after setup: workflow, badge, staff
-// access and quotas for that type only.
+// Add participant types to an event after setup: workflow, badge, staff
+// access and quotas for those types only.
 // Decision record: docs/decisions/2026-11-06-event-participant-types.md
 import { AuditAction, AuditEntityType } from '@prisma/client'
 import {
@@ -35,7 +35,7 @@ import {
 	summarize,
 } from '~/utils/add-participant-type'
 import {
-	applyAddType,
+	applyAddTypes,
 	buildAddTypeDefaults,
 	loadAddTypeContext,
 	parseAddTypePlan,
@@ -57,8 +57,8 @@ async function requireTypeList(eventId: string) {
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { event } = await requireSetupEvent(request, params.eventId)
 	await requireTypeList(event.id)
-	const typeId = new URL(request.url).searchParams.get('type')
-	const ctx = await loadAddTypeContext(event, typeId)
+	const typeIds = new URL(request.url).searchParams.getAll('type')
+	const ctx = await loadAddTypeContext(event, typeIds)
 	const defaults = await buildAddTypeDefaults(ctx, event.tenantId)
 	return json({ ctx, defaults })
 }
@@ -70,15 +70,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	checkHoneypot(formData)
 	await validateCSRF(formData, request.headers)
 
-	const ctx = await loadAddTypeContext(
-		event,
-		String(formData.get('typeId') ?? ''),
-	)
-	if (!ctx.type) {
+	const typeIds = [...new Set(formData.getAll('typeId').map(String))]
+	const ctx = await loadAddTypeContext(event, typeIds)
+	if (ctx.types.length === 0 || ctx.types.length !== typeIds.length) {
 		return json(
 			{
 				error:
-					'That participant type is already set up for this event, or is not one of the tenant’s types.',
+					'A picked participant type is already set up for this event, or is not one of the tenant’s types. Go back to the first step and pick again.',
 			},
 			{ status: 400 },
 		)
@@ -101,38 +99,49 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		)
 	}
 
-	const result = await applyAddType(parsed.data, event, ctx.type)
+	const results = await applyAddTypes(parsed.data, event, ctx.types)
 
-	const done = [
-		result.listed && 'added to the event',
-		result.workflow && 'workflow',
-		result.badge && 'badge template',
-		`${result.access} access row(s)`,
-		`${result.quotas} quota(s)`,
-		`${result.invitationQuotas} invitation quota(s)`,
-	].filter(Boolean)
-	await auditRequest({
-		request,
-		action: AuditAction.UPDATE,
-		entityType: AuditEntityType.EVENT,
-		entityId: event.id,
-		description: `Set up participant type "${ctx.type.name}" for "${event.name}": ${done.join(', ')}`,
-		userId: user.id,
-		tenantId: event.tenantId,
-		metadata: {
-			eventId: event.id,
-			participantTypeId: ctx.type.id,
-			...result,
-		},
-	})
+	for (const result of results) {
+		const done = [
+			result.listed && 'added to the event',
+			result.workflow && 'workflow',
+			result.badge && 'badge template',
+			`${result.access} access row(s)`,
+			`${result.quotas} quota(s)`,
+			`${result.invitationQuotas} invitation quota(s)`,
+		].filter(Boolean)
+		await auditRequest({
+			request,
+			action: AuditAction.UPDATE,
+			entityType: AuditEntityType.EVENT,
+			entityId: event.id,
+			description: `Set up participant type "${result.name}" for "${event.name}": ${done.join(', ')}`,
+			userId: user.id,
+			tenantId: event.tenantId,
+			metadata: {
+				eventId: event.id,
+				participantTypeId: result.id,
+				...result,
+			},
+		})
+	}
 
-	const hasWorkflow = result.workflow || ctx.existing.workflow
+	const withoutWorkflow = results.filter(
+		r => !r.workflow && !ctx.types.find(t => t.id === r.id)?.existing.workflow,
+	)
+	const names = results.map(r => r.name)
 	return redirectWithToast(`/admin/events/${event.id}`, {
 		type: 'success',
-		title: `${ctx.type.name} set up`,
-		description: hasWorkflow
-			? 'Focal points can now register this type.'
-			: 'It has no workflow yet, so the portal won’t offer it until it does.',
+		title:
+			names.length === 1
+				? `${names[0]} set up`
+				: `${names.length} participant types set up`,
+		description:
+			withoutWorkflow.length === 0
+				? names.length === 1
+					? 'Focal points can now register this type.'
+					: 'Focal points can now register these types.'
+				: `${withoutWorkflow.map(r => r.name).join(', ')} ${withoutWorkflow.length === 1 ? 'has' : 'have'} no workflow yet, so the portal won’t offer ${withoutWorkflow.length === 1 ? 'it' : 'them'} until ${withoutWorkflow.length === 1 ? 'it does' : 'they do'}.`,
 	})
 }
 
@@ -144,15 +153,22 @@ export default function AddParticipantTypeRoute() {
 	const isPending = useIsPending()
 	const isLoadingType = navigation.state === 'loading'
 	const [plan, setPlan] = useState<AddTypePlan>(defaults)
-	const [i, setI] = useState(ctx.type ? 1 : 0)
+	const [i, setI] = useState(ctx.types.length > 0 ? 1 : 0)
 	const [seen, setSeen] = useState(i)
 
-	// A different type has different defaults; start its plan over.
-	const typeId = ctx.type?.id
+	// A different set of types has different defaults; start the plan over.
+	const typeKey = ctx.types.map(t => t.id).join(',')
 	useEffect(() => {
 		setPlan(defaults)
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [typeId])
+	}, [typeKey])
+	const typeNames = ctx.types.map(t => t.name)
+	const typeLabel =
+		typeNames.length === 0
+			? 'Not picked'
+			: typeNames.length <= 2
+				? typeNames.join(', ')
+				: `${typeNames.length} types`
 
 	const go = (n: number) => {
 		setI(n)
@@ -164,14 +180,15 @@ export default function AddParticipantTypeRoute() {
 	const isConfirm = i === total - 1
 	const skipReason = section ? sectionSkipReason(ctx, section.key) : null
 	const summary = summarize(ctx, plan)
+	const noWorkflow = ctx.types
+		.filter(t => !t.existing.workflow && !plan.workflows[t.id])
+		.map(t => t.name)
 
 	return (
 		<div className="flex flex-col gap-4">
 			<div className="flex items-center justify-between gap-4">
 				<div className="min-w-0">
-					<p className="text-sm text-muted-foreground">
-						Add a participant type
-					</p>
+					<p className="text-sm text-muted-foreground">Add participant types</p>
 					<h1 className="truncate text-xl font-semibold">{ctx.event.name}</h1>
 				</div>
 				<Button asChild variant="outline" size="sm">
@@ -204,14 +221,14 @@ export default function AddParticipantTypeRoute() {
 						</p>
 						<h2 id="add-type-step-title" className="text-lg font-semibold">
 							{i === 0
-								? 'Participant type'
+								? 'Participant types'
 								: section
 									? section.title
 									: 'Confirm'}
 						</h2>
 						<p className="text-sm text-muted-foreground">
 							{i === 0
-								? 'Which type to add to this event, or finish setting up.'
+								? 'Which types to add to this event, or finish setting up.'
 								: section
 									? section.help
 									: 'Check the summary on the right, then create everything in one go.'}
@@ -223,7 +240,15 @@ export default function AddParticipantTypeRoute() {
 							<TypePicker
 								ctx={ctx}
 								disabled={isLoadingType}
-								onPick={id => setSearchParams({ type: id }, { replace: true })}
+								onPick={ids =>
+									setSearchParams(
+										new URLSearchParams(ids.map(id => ['type', id])),
+										{
+											replace: true,
+											preventScrollReset: true,
+										},
+									)
+								}
 							/>
 						) : section ? (
 							skipReason ? (
@@ -241,14 +266,15 @@ export default function AddParticipantTypeRoute() {
 						) : (
 							<div className="flex flex-col gap-4">
 								<p className="max-w-prose text-sm">
-									This adds <strong>{ctx.type?.name}</strong> to the event and
-									creates what the summary lists. The event&rsquo;s other
+									This adds <strong>{typeNames.join(', ')}</strong> to the event
+									and creates what the summary lists. The event&rsquo;s other
 									participant types aren&rsquo;t touched.
 								</p>
-								{!plan.workflow && !ctx.existing.workflow && (
+								{noWorkflow.length > 0 && (
 									<p className="max-w-prose text-sm text-amber-700 dark:text-amber-300">
-										No workflow is chosen, so the portal won&rsquo;t offer this
-										type yet.
+										No workflow is chosen for {noWorkflow.join(', ')}, so the
+										portal won&rsquo;t offer{' '}
+										{noWorkflow.length === 1 ? 'it' : 'them'} yet.
 									</p>
 								)}
 								{actionData?.error && (
@@ -276,7 +302,7 @@ export default function AddParticipantTypeRoute() {
 						{!isConfirm ? (
 							<Button
 								type="button"
-								disabled={!ctx.type || isLoadingType}
+								disabled={ctx.types.length === 0 || isLoadingType}
 								onClick={() => go(i + 1)}
 								className="active:scale-[0.97]"
 							>
@@ -286,14 +312,20 @@ export default function AddParticipantTypeRoute() {
 							<Form method="POST">
 								<AuthenticityTokenInput />
 								<HoneypotInputs />
-								<input type="hidden" name="typeId" value={ctx.type?.id ?? ''} />
+								{ctx.types.map(t => (
+									<input key={t.id} type="hidden" name="typeId" value={t.id} />
+								))}
 								<input type="hidden" name="plan" value={JSON.stringify(plan)} />
 								<Button
 									type="submit"
-									disabled={isPending || !ctx.type}
+									disabled={isPending || ctx.types.length === 0}
 									className="active:scale-[0.97]"
 								>
-									{isPending ? 'Saving…' : `Add ${ctx.type?.name ?? 'type'}`}
+									{isPending
+										? 'Saving…'
+										: typeNames.length === 1
+											? `Add ${typeNames[0]}`
+											: `Add ${typeNames.length} types`}
 								</Button>
 							</Form>
 						)}
@@ -322,13 +354,18 @@ export default function AddParticipantTypeRoute() {
 									aria-current={i === 0 ? 'step' : undefined}
 									className="rounded-sm text-left text-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 								>
-									Participant type
+									Participant types
 								</button>
 								<span className="truncate text-xs text-muted-foreground">
-									{ctx.type?.name ?? 'Not picked'}
+									{typeLabel}
 								</span>
 							</li>
-							{ctx.type &&
+							{i === 0 && typeNames.length > 2 && (
+								<li className="px-4 py-3 text-xs text-muted-foreground">
+									{typeNames.join(', ')}
+								</li>
+							)}
+							{ctx.types.length > 0 &&
 								ADD_TYPE_SECTIONS.map((sec, n) => {
 									const step = n + 1
 									const skipped = sectionSkipReason(ctx, sec.key)

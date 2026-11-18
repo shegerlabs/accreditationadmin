@@ -3,6 +3,7 @@ import { getZodConstraint, parseWithZod } from '@conform-to/zod'
 import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
 import {
 	Form,
+	Link,
 	useActionData,
 	useLoaderData,
 	useNavigate,
@@ -326,15 +327,32 @@ export default function BulkCreateWorkflowsRoute() {
 					<DialogHeader>
 						<DialogTitle>Bulk Create Workflows</DialogTitle>
 						<DialogDescription>
-							All participant types already have workflows for this event.
+							{participantTypes.length === 0
+								? 'This event doesn’t use any participant types yet.'
+								: participantTypes.length === 1
+									? `The one participant type this event uses (${participantTypes[0]!.name}) already has a workflow.`
+									: `All ${participantTypes.length} participant types this event uses (${participantTypes.map(t => t.name).join(', ')}) already have workflows.`}
 						</DialogDescription>
 					</DialogHeader>
-					<p className="py-4 text-muted-foreground">
-						All participant types have been assigned workflows.
+					<p className="py-4 text-sm text-muted-foreground">
+						{participantTypes.length === 0
+							? 'Pick the event’s participant types in the event setup first.'
+							: 'Bulk create only covers types already in the event. To bring in more of the tenant’s types, use Add types. It creates their workflows, badge templates, staff access and quotas in one go.'}
 					</p>
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={handleClose}>
 							Back
+						</Button>
+						<Button asChild>
+							<Link
+								to={
+									participantTypes.length === 0
+										? `/admin/events/${event.id}/setup`
+										: `/admin/events/${event.id}/add-type`
+								}
+							>
+								{participantTypes.length === 0 ? 'Set up event' : 'Add types'}
+							</Link>
 						</Button>
 					</DialogFooter>
 				</DialogContent>
