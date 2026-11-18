@@ -9,7 +9,13 @@ import {
 	useParams,
 	useSearchParams,
 } from '@remix-run/react'
-import { ArchiveRestore, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import {
+	ArchiveRestore,
+	ChevronLeft,
+	ChevronRight,
+	Search,
+	Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
@@ -63,7 +69,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const actionParam = url.searchParams.get('action')
 	const action =
 		actionParam && actionParam in Action ? (actionParam as Action) : null
-	const requestedPage = Math.max(1, Number(url.searchParams.get('page')) || 1)
+	const requestedPage = Math.max(
+		1,
+		Number(url.searchParams.get('historyPage')) || 1,
+	)
 
 	const terms = q.split(/\s+/).filter(Boolean)
 	const historyWhere: Prisma.ApprovalWhereInput = {
@@ -209,7 +218,7 @@ export default function RetiredStepRoute() {
 	// any filter change goes back to page 1.
 	const withParams = (changes: Record<string, string | null>) => {
 		const next = new URLSearchParams(searchParams)
-		if (!('page' in changes)) next.delete('page')
+		if (!('historyPage' in changes)) next.delete('historyPage')
 		for (const [key, value] of Object.entries(changes))
 			value === null ? next.delete(key) : next.set(key, value)
 		const query = next.toString()
@@ -433,7 +442,7 @@ export default function RetiredStepRoute() {
 										</span>
 										<div className="flex items-center gap-1">
 											<PageLink
-												to={withParams({ page: String(page - 1) })}
+												to={withParams({ historyPage: String(page - 1) })}
 												disabled={page <= 1}
 												label="Previous page"
 											>
@@ -443,7 +452,7 @@ export default function RetiredStepRoute() {
 												Page {page} of {pageCount}
 											</span>
 											<PageLink
-												to={withParams({ page: String(page + 1) })}
+												to={withParams({ historyPage: String(page + 1) })}
 												disabled={page >= pageCount}
 												label="Next page"
 											>
@@ -460,6 +469,14 @@ export default function RetiredStepRoute() {
 						<Button asChild variant="outline">
 							<Link to={stepsUrl}>Close</Link>
 						</Button>
+						{total === 0 && (
+							<Button asChild variant="outline">
+								<Link to={`${stepsUrl}/${step.id}/delete`}>
+									<Trash2 className="mr-1 h-4 w-4" />
+									Delete
+								</Link>
+							</Button>
+						)}
 						<Button asChild>
 							<Link to={`${stepsUrl}/${step.id}/restore`}>
 								<ArchiveRestore className="mr-1 h-4 w-4" />

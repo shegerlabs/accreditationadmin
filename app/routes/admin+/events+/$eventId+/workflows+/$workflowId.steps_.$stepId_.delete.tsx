@@ -29,6 +29,8 @@ import { checkHoneypot } from '~/utils/honeypot.server'
 import { invariantResponse, useIsPending } from '~/utils/misc'
 import {
 	StepLifecycleError,
+	deleteRetiredBlocker,
+	deleteRetiredStep,
 	getStepUsage,
 	removeBlocker,
 	removeStep,
@@ -41,7 +43,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		where: {
 			id: params.stepId,
 			workflowId: params.workflowId,
-			retiredAt: null,
 			workflow: { event: getTenantFilter(user) },
 		},
 		select: {
@@ -51,9 +52,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			nextStepId: true,
 			isRejectionTarget: true,
 			isBypassTarget: true,
+			retiredAt: true,
 		},
 	})
 	invariantResponse(step, 'Step not found', { status: 404 })
+
+	// A retired step is already out of the workflow: this deletes it for good,
+	// only if nothing happened at it.
+	if (step.retiredAt) {
+		const usage = await getStepUsage(step.id)
+		return json({
+			step,
+			usage,
+			predecessors: [] as string[],
+			nextName: null,
+			blocker: deleteRetiredBlocker(step, usage),
+		})
+	}
 
 	const [usage, predecessors, next] = await Promise.all([
 		getStepUsage(step.id),
@@ -89,7 +104,29 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	await validateCSRF(formData, request.headers)
 
 	const { eventId, workflowId, stepId } = params
+	const stepsUrl = `/admin/events/${eventId}/workflows/${workflowId}/steps`
 	try {
+		if (formData.get('intent') === 'delete-retired') {
+			const { step } = await deleteRetiredStep({
+				stepId: stepId!,
+				tenantFilter: getTenantFilter(user),
+			})
+			await auditRequest({
+				request,
+				action: AuditAction.DELETE,
+				entityType: AuditEntityType.STEP,
+				entityId: step.id,
+				description: `Deleted retired step "${step.name}" (no history)`,
+				userId: user.id,
+				tenantId: step.tenantId,
+				metadata: { step },
+			})
+			return redirectWithToast(stepsUrl, {
+				type: 'success',
+				title: 'Step Deleted',
+				description: `"${step.name}" was deleted. Nothing had happened at it.`,
+			})
+		}
 		const result = await removeStep({
 			stepId: stepId!,
 			tenantFilter: getTenantFilter(user),
@@ -105,16 +142,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			tenantId: result.step.tenantId,
 			metadata: result,
 		})
-		return redirectWithToast(
-			`/admin/events/${eventId}/workflows/${workflowId}/steps`,
-			{
-				type: 'success',
-				title: retired ? 'Step Retired' : 'Step Deleted',
-				description: retired
-					? `"${result.step.name}" is out of the workflow. Its history is kept.`
-					: `"${result.step.name}" was deleted.`,
-			},
-		)
+		return redirectWithToast(stepsUrl, {
+			type: 'success',
+			title: retired ? 'Step Retired' : 'Step Deleted',
+			description: retired
+				? `"${result.step.name}" is out of the workflow. Its history is kept.`
+				: `"${result.step.name}" was deleted.`,
+		})
 	} catch (error) {
 		if (error instanceof StepLifecycleError)
 			return json({ error: error.message }, { status: 400 })
@@ -130,7 +164,8 @@ export default function RemoveStepRoute() {
 	const navigate = useNavigate()
 	const isPending = useIsPending()
 	const stepsUrl = `/admin/events/${eventId}/workflows/${workflowId}/steps`
-	const willRetire = usage.approvals > 0
+	const retired = Boolean(step.retiredAt)
+	const willRetire = !retired && usage.approvals > 0
 
 	return (
 		<Dialog open onOpenChange={open => !open && navigate(stepsUrl)}>
@@ -139,17 +174,23 @@ export default function RemoveStepRoute() {
 				onInteractOutside={e => e.preventDefault()}
 			>
 				<DialogHeader>
-					<DialogTitle>Remove “{step.name}”</DialogTitle>
+					<DialogTitle>
+						{retired ? 'Delete' : 'Remove'} “{step.name}”
+					</DialogTitle>
 					<DialogDescription>
-						{willRetire
-							? `${usage.approvals} approval${usage.approvals === 1 ? ' was' : 's were'} recorded at this step, so it will be retired: taken out of the workflow but kept so that history still reads correctly. You can restore it later.`
-							: 'Nothing has happened at this step yet, so it will be deleted.'}
+						{retired
+							? 'This retired step has no history: nobody was ever approved, moved or rejected at it. Deleting it removes it for good; it can no longer be restored.'
+							: willRetire
+								? `${usage.approvals} approval${usage.approvals === 1 ? ' was' : 's were'} recorded at this step, so it will be retired: taken out of the workflow but kept so that history still reads correctly. You can restore it later.`
+								: 'Nothing has happened at this step yet, so it will be deleted.'}
 					</DialogDescription>
 				</DialogHeader>
 
 				{blocker ? (
 					<div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm">
-						<p className="font-medium text-destructive">Can’t remove yet</p>
+						<p className="font-medium text-destructive">
+							{retired ? 'Can’t delete' : 'Can’t remove yet'}
+						</p>
 						<p className="mt-1 text-muted-foreground">{blocker}</p>
 						{usage.participants > 0 && (
 							<Button asChild size="sm" variant="outline" className="mt-3">
@@ -183,6 +224,9 @@ export default function RemoveStepRoute() {
 				<Form method="POST">
 					<AuthenticityTokenInput />
 					<HoneypotInputs />
+					{retired && (
+						<input type="hidden" name="intent" value="delete-retired" />
+					)}
 					<ErrorList errors={actionData?.error ? [actionData.error] : []} />
 					<DialogFooter>
 						<Button type="button" variant="outline" asChild>

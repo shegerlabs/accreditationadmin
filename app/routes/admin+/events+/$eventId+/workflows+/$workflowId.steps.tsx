@@ -1,5 +1,11 @@
 import { LoaderFunctionArgs, json } from '@remix-run/node'
-import { Link, NavLink, Outlet, useLoaderData } from '@remix-run/react'
+import {
+	Link,
+	NavLink,
+	Outlet,
+	useLoaderData,
+	useMatches,
+} from '@remix-run/react'
 import { GitBranch, List, Users } from 'lucide-react'
 import { Button } from '~/components/ui/button'
 import { cn } from '~/utils/misc'
@@ -26,6 +32,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export default function StepsLayout() {
 	const { workflow } = useLoaderData<typeof loader>()
+	// The list stays the active view while a retired step's history is open over it.
+	const onList = useMatches().some(m =>
+		m.id.endsWith('$workflowId.steps._list+/_layout'),
+	)
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -38,7 +48,7 @@ export default function StepsLayout() {
 						className={({ isActive }) =>
 							cn(
 								'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-								isActive
+								isActive || onList
 									? 'bg-background text-foreground shadow-sm'
 									: 'text-muted-foreground hover:text-foreground',
 							)

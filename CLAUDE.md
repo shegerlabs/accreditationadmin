@@ -47,6 +47,7 @@ npm run setup-event -- --organ=pap      # DRY RUN, organ pre-selected
 npm run setup-event -- --confirm        # Back up, then purge and seed
 npm run reset-for-event                 # DRY RUN: purge only
 npm run reset-for-event -- --confirm    # Back up, then purge
+npm run setup-event -- --workflows      # DRY RUN: add/remove/restore a step across a live event's workflows (no purge)
 
 # Icons
 npm run build:icons       # Rebuild icon components from SVG
@@ -151,9 +152,16 @@ Steps holding participants or approvals can't be deleted (`NO ACTION` foreign
 keys). Use `app/utils/step-lifecycle.server.ts`: **Move participants** (bulk,
 records a `MOVE` approval), **Remove step** (relinks predecessors; deletes if no
 history, otherwise sets `Step.retiredAt` and saves its place in
-`Step.retiredLinks`), **Restore** (puts it back from `retiredLinks`). Queries
-that list steps for building, picking or granting access must filter
-`retiredAt: null`. See
+`Step.retiredLinks`), **Restore** (puts it back from `retiredLinks`), **Delete**
+a retired step only if it has no approvals (`deleteRetiredStepTx`). The rules
+live in `step-lifecycle-core.server.ts` (Remix-free, transaction level), shared
+by the admin UI. Changes across every workflow of an event at once (e.g. one
+validation level to two) are planned in `workflow-changes-core.server.ts` and
+reached from the setup wizard's Workflows step
+(`admin/events/$eventId/setup/workflows`) or
+`npm run setup-event -- --workflows`; removals there always retire, so they can
+be restored. Queries that list steps for building, picking or granting access
+must filter `retiredAt: null`. See
 `docs/decisions/2026-11-16-changing-workflows-mid-event.md`.
 
 #### Visual Workflow Builder

@@ -5,8 +5,15 @@
 //   npm run setup-event                      # DRY RUN (default) - writes nothing
 //   npm run setup-event -- --organ=pap       # DRY RUN, skipping the organ prompt
 //   npm run setup-event -- --confirm         # Back up, then purge and seed
+//   npm run setup-event -- --workflows       # DRY RUN: change the live event's workflows
+//   npm run setup-event -- --workflows --confirm
 //
-// WHAT IT ASKS, in order:
+// It first asks which of two jobs to do (--workflows skips the question):
+//   - Set up a new event: purge everything and seed (below).
+//   - Change the live event's workflows: add, remove or restore a step across
+//     its workflows, keeping every participant. See lib/workflow-changes.ts.
+//
+// WHAT A NEW SETUP ASKS, in order:
 //   1. Which organ (scripts/profiles/) - tenant identity + participant types.
 //   2. Whether losing the current participants and audit trail is acceptable.
 //   3. The event details: name, location, dates, timezone, status.
@@ -39,6 +46,7 @@ import {
 } from './lib/purge.js'
 import { describeTarget, printBanner } from './lib/target.js'
 import { assertRetainedUsersExist } from './lib/users.js'
+import { runWorkflowChanges } from './lib/workflow-changes.js'
 import { PROFILES, findProfile, type OrganProfile } from './profiles/index.js'
 import { reportVerification, verifyPurge } from './lib/verify.js'
 
@@ -491,9 +499,42 @@ async function seed(
 	return { eventId: created.id, workflowCount }
 }
 
+/** Which job this run does. Changing workflows never purges anything. */
+async function pickMode(): Promise<'setup' | 'workflows'> {
+	if (process.argv.includes('--workflows')) return 'workflows'
+	const { mode } = await prompts({
+		type: 'select',
+		name: 'mode',
+		message: 'What do you want to do?',
+		choices: [
+			{
+				title: 'Set up a new event (purges all participants and event data)',
+				value: 'setup',
+			},
+			{
+				title:
+					"Change the live event's workflows (add/remove approval levels; keeps participants)",
+				value: 'workflows',
+			},
+		],
+	})
+	if (!mode) cancelled()
+	return mode
+}
+
 async function main() {
 	const confirm = process.argv.includes('--confirm')
 	const target = describeTarget()
+
+	if ((await pickMode()) === 'workflows') {
+		printBanner(
+			confirm ? 'CHANGE WORKFLOWS — LIVE RUN' : 'CHANGE WORKFLOWS — DRY RUN',
+			target,
+		)
+		await assertSchemaMatches(prisma, target.name)
+		await runWorkflowChanges(prisma, { confirm, databaseName: target.name })
+		return
+	}
 
 	printBanner(
 		confirm ? 'SETUP EVENT — LIVE RUN' : 'SETUP EVENT — DRY RUN',

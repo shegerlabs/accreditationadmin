@@ -1,7 +1,9 @@
 import { Role } from '@prisma/client'
 import { LoaderFunctionArgs, SerializeFrom, json } from '@remix-run/node'
+import type { ShouldRevalidateFunction } from '@remix-run/react'
 import {
 	Link,
+	Outlet,
 	useLoaderData,
 	useOutletContext,
 	useParams,
@@ -13,6 +15,25 @@ import { SearchBar } from '~/components/search-bar'
 import { requireUserWithRoles } from '~/utils/auth.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
 import { WorkflowData } from '~/components/workflow-builder/types'
+
+// The list is a layout so a retired step's history (retired.$stepId) opens
+// over it instead of replacing it. (A `_list+/` folder because a file named
+// `steps._list.tsx` inside a `+` folder is read as that folder's layout.) Searching or paging that history changes
+// only its own params, so the list isn't reloaded for it.
+const LIST_PARAMS = ['search', 'roleId', 'page', 'pageSize']
+export const shouldRevalidate: ShouldRevalidateFunction = ({
+	currentUrl,
+	nextUrl,
+	formMethod,
+	defaultShouldRevalidate,
+}) => {
+	if (formMethod && formMethod !== 'GET') return defaultShouldRevalidate
+	const list = (u: URL) => LIST_PARAMS.map(k => u.searchParams.get(k))
+	return (
+		JSON.stringify(list(currentUrl)) !== JSON.stringify(list(nextUrl)) &&
+		defaultShouldRevalidate
+	)
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	await requireUserWithRoles(request, ['admin', 'tenant'])
@@ -194,6 +215,8 @@ export default function StepsListRoute() {
 				defaultPageSize={defaultPageSize}
 				pageSizeOptions={pageSizeOptions}
 			/>
+			{/* A retired step's history opens here, over the list. */}
+			<Outlet />
 		</div>
 	)
 }
@@ -232,12 +255,23 @@ function RetiredSteps({
 								{new Date(step.retiredAt!).toLocaleDateString()}
 							</span>
 						</div>
-						<Button asChild variant="outline" size="sm">
-							<Link to={`${step.id}/restore`}>
-								<ArchiveRestore className="mr-1 h-4 w-4" />
-								Restore
-							</Link>
-						</Button>
+						<div className="flex shrink-0 gap-2">
+							{/* Only a step nothing happened at can go for good. */}
+							{step._count.approvals === 0 && (
+								<Button asChild variant="outline" size="sm">
+									<Link to={`${step.id}/delete`}>
+										<TrashIcon className="mr-1 h-4 w-4" />
+										Delete
+									</Link>
+								</Button>
+							)}
+							<Button asChild variant="outline" size="sm">
+								<Link to={`${step.id}/restore`}>
+									<ArchiveRestore className="mr-1 h-4 w-4" />
+									Restore
+								</Link>
+							</Button>
+						</div>
 					</li>
 				))}
 			</ul>

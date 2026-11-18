@@ -8,8 +8,8 @@ Emails and Access one by one and recreating the same defaults by hand.
 A stepped wizard at `/admin/events/:eventId/setup` with a **receipt** panel.
 
 - Steps: Participant types → Restrictions → Invitations → Workflows → Badge
-  templates → Emails → Staff access → Confirm. (Participant types added later, see
-  `2026-11-06-event-participant-types.md`.)
+  templates → Emails → Staff access → Confirm. (Participant types added later,
+  see `2026-11-06-event-participant-types.md`.)
 - Left: the editor for the current step. Right (sticky): a receipt of everything
   that will be created. Each section shows its summary and a status: _Not
   reviewed_, _Default_ or _Changed_. Changed sections have a **Reset to
@@ -45,15 +45,24 @@ differences, in one transaction (`app/utils/event-setup-edit.server.ts`).
   the old one; quotas added by hand on the Invitations tab stay.
 - Locks, because these deletes cascade: a type with participants, invitations or
   invitation quotas can't be removed; a type with participants keeps its
-  workflow; a restriction used by an invitation in the plan can't be removed; an invitation
-with participants can't be removed; a badge template
-  with uploaded files can be repointed but not removed. The server checks each
-  again inside the transaction.
+  workflow; a restriction used by an invitation in the plan can't be removed; an
+  invitation with participants can't be removed; a badge template with uploaded
+  files can be repointed but not removed. The server checks each again inside
+  the transaction.
 - The page carries a hash of the saved setup. A save over a setup that changed
   since the page loaded is refused with a "reload" message, as is a first-run
   form submitted after the event was set up elsewhere.
 - Published, postponed and other non-draft events keep the fill-in-the-gaps
   behaviour above; use the tabs or **Add type** there.
+
+## Changing live workflows (added 2026-11-17)
+
+Creating and replacing whole workflows can't serve a live event: replacing
+deletes the workflow, which participants and approvals block. Once an event has
+workflows, the Workflows step shows a "Change live workflows" link to
+`setup/workflows`, which adds, removes or restores one step across all or chosen
+workflows in place (one validation level to two, and back). See
+`2026-11-16-changing-workflows-mid-event.md`.
 
 ## Defaults
 
@@ -89,19 +98,19 @@ with participants can't be removed; a badge template
 ## Invitations step (decided 2026-11-06 from /proto/invitations)
 
 - Direction: **Table**, one editable row per invitation (organization, focal
-  point, email, restriction, maximum) with a "Paste from spreadsheet" panel
-  that appends rows (tab- or comma-separated; one restriction for the batch).
+  point, email, restriction, maximum) with a "Paste from spreadsheet" panel that
+  appends rows (tab- or comma-separated; one restriction for the batch).
 - The step is optional; an empty list sets the event up as before. The
   restriction dropdown lists the Restrictions step's restrictions (or the
   event's, when that step is skipped), plus "No restriction".
 - Each invitation gets its restriction's quotas copied on, like Apply
   restriction (`sourceRestrictionId` set). Emails are lowercased.
-- Row problems (missing organization, bad email, duplicate organization +
-  email, non-numeric maximum, removed restriction) block Set up.
+- Row problems (missing organization, bad email, duplicate organization + email,
+  non-numeric maximum, removed restriction) block Set up.
 - Login details for focal points stay on the Invitations tab.
 - Create mode skips the step when the event already has invitations.
-- Rejected: **By restriction** (cards per restriction with quick-add):
-  clear grouping, but an extra click to edit and moving an invitation meant
-  opening its edit form. **List** (the text is the source of truth, checked
-  live): fastest to paste, but restrictions must be typed by name and long
-  lists are fragile to edit by hand.
+- Rejected: **By restriction** (cards per restriction with quick-add): clear
+  grouping, but an extra click to edit and moving an invitation meant opening
+  its edit form. **List** (the text is the source of truth, checked live):
+  fastest to paste, but restrictions must be typed by name and long lists are
+  fragile to edit by hand.

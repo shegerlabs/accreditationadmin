@@ -7,7 +7,7 @@ import {
 	type LoaderFunctionArgs,
 } from '@remix-run/node'
 import { Form, Link, useActionData, useLoaderData } from '@remix-run/react'
-import { ArrowLeft, RotateCcw } from 'lucide-react'
+import { ArrowLeft, GitBranch, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import { AuthenticityTokenInput } from 'remix-utils/csrf/react'
 import { HoneypotInputs } from 'remix-utils/honeypot/react'
@@ -416,6 +416,43 @@ export default function EventSetupRoute() {
 					</div>
 				</aside>
 			</div>
+		</div>
+	)
+}
+
+/**
+ * The wizard only creates or replaces whole workflows. Once an event has
+ * them, steps are added, removed and restored in place on their own page, so
+ * participants keep their place (one validation level to two, and back).
+ */
+function LiveWorkflowsPanel({
+	eventId,
+	workflows,
+	editing,
+}: {
+	eventId: string
+	workflows: number
+	editing: boolean
+}) {
+	return (
+		<div className="flex flex-col gap-3 rounded-md border bg-muted/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+			<div className="max-w-prose text-sm">
+				<p className="font-medium">Change live workflows</p>
+				<p className="text-muted-foreground">
+					Add a step (such as a second validation level), remove one or restore
+					a retired one across{' '}
+					{workflows === 1 ? 'the workflow' : `all ${workflows} workflows`} at
+					once. Participants keep their place.
+					{editing &&
+						' Unsaved changes in this wizard are lost when you leave it.'}
+				</p>
+			</div>
+			<Button asChild variant="outline" size="sm" className="shrink-0">
+				<Link to={`/admin/events/${eventId}/setup/workflows`}>
+					<GitBranch className="mr-2 h-4 w-4" aria-hidden />
+					Change workflows
+				</Link>
+			</Button>
 		</div>
 	)
 }

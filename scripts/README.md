@@ -27,6 +27,38 @@ npm run reset-for-event                  # dry run
 npm run reset-for-event -- --confirm     # back up, then purge
 ```
 
+### Changing a live event's workflows
+
+The same change is available in the web setup wizard (Workflows step → **Change
+workflows**, at `/admin/events/:eventId/setup/workflows`); both use
+`app/utils/workflow-changes-core.server.ts`. From the CLI, `setup-event` first
+asks which job to do. **Change the live event's workflows** purges nothing: it
+adds, removes or restores a step across every workflow of the event (or the ones
+you pick), with the admin UI's rules
+(`app/utils/step-lifecycle-core.server.ts`). Typical use: one validation level
+to two, or back.
+
+```bash
+npm run setup-event -- --workflows             # dry run: prints each plan
+npm run setup-event -- --workflows --confirm   # apply, one transaction per change
+```
+
+- **Add a step**: copy one from a workflow template (e.g. "Second Level
+  Validation" from Two Levels Approval) or describe a new one, and pick the step
+  it follows. It can grant access to users with the step's role, and move
+  participants who already went past that point back onto it (you choose which
+  statuses; leave out BYPASSED). Participants who haven't reached it yet go
+  through it automatically. A workflow that has a retired step with the same
+  name, action and role gets that step restored where it was, not a second copy.
+- **Remove a step**: participants waiting there are moved on first (MOVE
+  approvals); the step is then always retired, never deleted, so **Restore** can
+  put it back. Entry, rejection-target and bypass-target steps are refused.
+- **Restore a retired step**: puts it back where it was, with its access.
+
+Under `--confirm` it asks which admin account to record the changes under (MOVE
+approvals and the audit log), asks for the database name, and runs the backup
+gate once before the first write.
+
 Set `VERIFY_RESTORE_URL` to a throwaway database so the backup is proven
 restorable, not merely complete:
 
