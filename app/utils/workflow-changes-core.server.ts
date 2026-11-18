@@ -28,6 +28,7 @@ import {
 	removeStepTx,
 	restoreStepTx,
 } from './step-lifecycle-core.server'
+import { workflowNameFromTemplate } from './workflow-clone.server'
 
 type Db = Prisma.TransactionClient
 
@@ -576,9 +577,102 @@ export function planFingerprint(plan: WorkflowChangePlan) {
 
 /**
  * Apply a plan inside the caller's transaction, with one audit log per
- * workflow. Returns a one-line summary and counts.
+ * workflow, then rename workflows whose steps now match a different template
+ * (see syncTemplateNamesTx). Returns a one-line summary and counts.
  */
 export async function applyWorkflowChange(
+	tx: Db,
+	args: {
+		event: ChangeEvent
+		plan: WorkflowChangePlan
+		actorId: string
+		ipAddress?: string
+		userAgent: string
+	},
+) {
+	const result = await applyPlanTx(tx, args)
+	const renamed = await syncTemplateNamesTx(tx, args)
+	return {
+		...result,
+		summary:
+			result.summary +
+			(renamed.length
+				? ` Renamed ${plural(renamed.length, 'workflow')} to match ${[...new Set(renamed.map(r => `"${r.templateName}"`))].join(', ')}.`
+				: ''),
+		renamed,
+	}
+}
+
+/** Active steps as a comparable signature: the set of name and action pairs. */
+const stepSignature = (steps: { name: string; action: Action }[]) =>
+	JSON.stringify(steps.map(s => `${s.action}:${s.name}`).sort())
+
+/**
+ * A workflow cloned from a template is named "<Type> - <Template>". Once steps
+ * are added or removed that name can describe the wrong template ("One Level
+ * Approval" on a workflow that now has two validation levels). Rename every
+ * workflow of the event that still carries such a name to the one template
+ * whose steps its active steps match exactly. Workflows with names of their
+ * own, or that match no template (or several), keep their name.
+ */
+export async function syncTemplateNamesTx(
+	tx: Db,
+	{
+		event,
+		actorId,
+		ipAddress,
+		userAgent,
+	}: {
+		event: ChangeEvent
+		actorId: string
+		ipAddress?: string
+		userAgent: string
+	},
+) {
+	const templates = await tx.workflowTemplate.findMany({
+		where: { tenantId: event.tenantId },
+		select: { name: true, steps: { select: { name: true, action: true } } },
+	})
+	const bySignature = new Map<string, string[]>()
+	for (const t of templates) {
+		const key = stepSignature(t.steps)
+		bySignature.set(key, [...(bySignature.get(key) ?? []), t.name])
+	}
+	const renamed: {
+		id: string
+		from: string
+		to: string
+		templateName: string
+	}[] = []
+	for (const wf of await loadEventWorkflows(tx, event.id)) {
+		const conventional = templates.some(
+			t => wf.name === workflowNameFromTemplate(wf.typeName, t.name),
+		)
+		if (!conventional) continue
+		const matches = bySignature.get(stepSignature(activeSteps(wf))) ?? []
+		if (matches.length !== 1) continue
+		const to = workflowNameFromTemplate(wf.typeName, matches[0]!)
+		if (to === wf.name) continue
+		await tx.workflow.update({ where: { id: wf.id }, data: { name: to } })
+		await tx.auditLog.create({
+			data: {
+				tenantId: event.tenantId,
+				userId: actorId,
+				action: AuditAction.UPDATE,
+				entityType: AuditEntityType.WORKFLOW,
+				entityId: wf.id,
+				description: `Renamed workflow "${wf.name}" to "${to}" in event "${event.name}": its steps now match the "${matches[0]}" template`,
+				metadata: { eventId: event.id, from: wf.name, to },
+				ipAddress,
+				userAgent,
+			},
+		})
+		renamed.push({ id: wf.id, from: wf.name, to, templateName: matches[0]! })
+	}
+	return renamed
+}
+
+async function applyPlanTx(
 	tx: Db,
 	{
 		event,
