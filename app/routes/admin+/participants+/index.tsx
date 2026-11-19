@@ -37,6 +37,7 @@ import {
 	participantFilterFields,
 	participantSearchFields,
 } from '~/utils/participant-filters.server'
+import { cn } from '~/utils/misc'
 
 const RestoreParticipantSchema = z.object({
 	participantId: z.string(),
@@ -365,7 +366,12 @@ export default function IndexRoute() {
 						renderExtra={
 							<div className="flex items-center gap-2">
 								{isGlobalAdmin && deletedFilter === 'deleted' && (
-									<Button size="sm" variant="destructive" className="gap-1" asChild>
+									<Button
+										size="sm"
+										variant="destructive"
+										className="gap-1"
+										asChild
+									>
 										<Link to="/admin/participants/empty-trash">
 											<Trash2 className="h-4 w-4" />
 											Empty Recycle Bin
@@ -402,7 +408,9 @@ export default function IndexRoute() {
 										</DropdownMenuItem>
 										<DropdownMenuItem asChild disabled={nothingToExport}>
 											<a
-												href={buildExportUrl('/admin/resources/participants-vip')}
+												href={buildExportUrl(
+													'/admin/resources/participants-vip',
+												)}
 												className="flex items-center gap-2"
 											>
 												VIP List with Photos (Word)
@@ -429,18 +437,19 @@ export default function IndexRoute() {
 						{
 							key: 'name',
 							header: 'Participant',
+							width: '26%',
 							render: (participant: any) => {
 								const photo = participant.documents?.[0]
 								return (
 									<Link
 										to={`/admin/participants/${participant.id}${searchParams.size ? '?' + searchParams.toString() : ''}`}
-										className="flex items-center gap-3"
+										className="flex min-w-0 items-center gap-3"
 									>
 										{photo ? (
 											<img
 												src={`/admin/resources/participants/${photo.id}?mode=inline`}
 												alt={`${participant.firstName} ${participant.familyName}`}
-												className="h-10 w-10 rounded-full object-cover"
+												className="h-10 w-10 shrink-0 rounded-full object-cover"
 												loading="lazy"
 												onError={e => {
 													const target = e.target as HTMLImageElement
@@ -451,16 +460,19 @@ export default function IndexRoute() {
 												}}
 											/>
 										) : (
-											<div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+											<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
 												<ImageIcon className="h-5 w-5 text-muted-foreground" />
 											</div>
 										)}
-										<div>
-											<div className="font-medium">
-												{participant.registrationCode}
-											</div>
-											<div className="text-sm text-muted-foreground">
+										<div className="min-w-0">
+											<div
+												className="truncate font-medium"
+												title={`${participant.firstName} ${participant.familyName}`}
+											>
 												{participant.firstName} {participant.familyName}
+											</div>
+											<div className="truncate text-xs tabular-nums text-muted-foreground">
+												{participant.registrationCode}
 											</div>
 										</div>
 									</Link>
@@ -470,29 +482,49 @@ export default function IndexRoute() {
 						{
 							key: 'participantType',
 							header: 'Type',
-							render: (participant: any) => participant.participantType.name,
+							width: '12%',
+							render: (participant: any) => (
+								<span
+									className="block truncate"
+									title={participant.participantType.name}
+								>
+									{participant.participantType.name}
+								</span>
+							),
 						},
 						{
 							key: 'session',
 							header: 'Session',
+							width: '9%',
 							render: (participant: any) => (
 								<Badge
+									className="max-w-full"
 									variant={
 										participant.attendClosedSession ? 'default' : 'secondary'
 									}
 								>
-									{participant.attendClosedSession ? 'Closed' : 'Open'}
+									<span className="truncate">
+										{participant.attendClosedSession ? 'Closed' : 'Open'}
+									</span>
 								</Badge>
 							),
 						},
 						{
 							key: 'organization',
 							header: 'Organization',
-							render: (participant: any) => participant.organization,
+							render: (participant: any) => (
+								<span
+									className="block truncate"
+									title={participant.organization}
+								>
+									{participant.organization}
+								</span>
+							),
 						},
 						{
 							key: 'status',
 							header: 'Status',
+							width: '12%',
 							render: (participant: any) => {
 								const statusStyles = {
 									INPROGRESS:
@@ -500,15 +532,22 @@ export default function IndexRoute() {
 									REJECTED: 'bg-red-100 text-red-800 hover:bg-red-100/80',
 									PRINTED: 'bg-green-100 text-green-800 hover:bg-green-100/80',
 								}
+								const status: string = participant.status
+								const label =
+									status === 'INPROGRESS'
+										? 'In progress'
+										: status.charAt(0) + status.slice(1).toLowerCase()
 								return (
 									<Badge
-										className={
+										className={cn(
+											'max-w-full',
 											statusStyles[
 												participant.status as keyof typeof statusStyles
-											] ?? ''
-										}
+											],
+										)}
+										title={label}
 									>
-										{participant.status}
+										<span className="truncate">{label}</span>
 									</Badge>
 								)
 							},
@@ -516,15 +555,21 @@ export default function IndexRoute() {
 						{
 							key: 'step',
 							header: 'Stage',
-							render: (participant: any) => (
-								<div className="flex items-center">
-									<span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 ring-1 ring-inset ring-emerald-700/10">
-										{participant.step?.role?.name === 'reviewer'
-											? 'focal person'
-											: participant.step?.role?.name}
+							width: '13%',
+							render: (participant: any) => {
+								const stage =
+									participant.step?.role?.name === 'reviewer'
+										? 'focal person'
+										: participant.step?.role?.name
+								return (
+									<span
+										className="inline-flex max-w-full items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-700/10"
+										title={stage}
+									>
+										<span className="truncate">{stage}</span>
 									</span>
-								</div>
-							),
+								)
+							},
 						},
 					]}
 					actions={[
@@ -566,7 +611,7 @@ export default function IndexRoute() {
 						},
 					]}
 					status={data.status}
-					
+					fixedLayout
 					keyExtractor={participant => participant.id}
 					totalPages={totalPages}
 					currentPage={currentPage}

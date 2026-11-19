@@ -23,6 +23,8 @@ export type DataListColumn = {
 	key: string
 	header: React.ReactNode
 	render?: (item: DataItem) => React.ReactNode
+	/** CSS width of the column, e.g. '26%' or '96px'. Used with `fixedLayout`. */
+	width?: string
 }
 
 type Action = {
@@ -71,6 +73,14 @@ type DataListProps = {
 	}[]
 	defaultPageSize?: number
 	pageSizeOptions?: number[]
+	/**
+	 * Keep the desktop table to the screen width: columns take their `width`
+	 * (columns without one share what is left), rows never wrap, and long text
+	 * is cut off by the column's render. Actions become compact icon buttons.
+	 */
+	fixedLayout?: boolean
+	/** Width of the actions column when `fixedLayout` is on. */
+	actionsColumnWidth?: string
 }
 
 export function DataList({
@@ -90,6 +100,8 @@ export function DataList({
 	bulkActions,
 	defaultPageSize,
 	pageSizeOptions,
+	fixedLayout,
+	actionsColumnWidth = '104px',
 }: DataListProps) {
 	const showPaginator = totalPages !== undefined && currentPage !== undefined
 
@@ -301,8 +313,25 @@ export function DataList({
 						<div className="flex space-x-2">{bulkControls}</div>
 					</div>
 				)}
-				<div className="overflow-x-auto rounded-md border">
-					<Table>
+				<div
+					className={clsx(
+						'rounded-md border',
+						fixedLayout ? 'overflow-hidden' : 'overflow-x-auto',
+					)}
+				>
+					<Table style={fixedLayout ? { tableLayout: 'fixed' } : undefined}>
+						{fixedLayout && (
+							<colgroup>
+								{selectable && <col style={{ width: '44px' }} />}
+								{columns.map(column => (
+									<col
+										key={column.key}
+										style={column.width ? { width: column.width } : undefined}
+									/>
+								))}
+								{actions && <col style={{ width: actionsColumnWidth }} />}
+							</colgroup>
+						)}
 						<TableHeader>
 							<TableRow>
 								{selectable && (
@@ -353,8 +382,13 @@ export function DataList({
 									{actions && (
 										<TableCell
 											className={clsx(
-												actionWidth ? `w-${actionWidth}` : 'w-48',
-												'space-x-4 py-2 text-right',
+												'py-2 text-right',
+												fixedLayout
+													? 'space-x-1 whitespace-nowrap px-3'
+													: [
+															actionWidth ? `w-${actionWidth}` : 'w-48',
+															'space-x-4',
+														],
 											)}
 										>
 											{actions.map((action, index) => {
@@ -387,9 +421,22 @@ export function DataList({
 															key={index}
 															asChild
 															size="sm"
-															variant={action.variant || 'ghost'}
+															variant={
+																fixedLayout && action.variant === 'outline'
+																	? 'ghost'
+																	: action.variant || 'ghost'
+															}
+															className={
+																fixedLayout ? 'h-8 w-8 p-0' : undefined
+															}
 														>
-															<Link to={action.href(item)}>{action.icon}</Link>
+															<Link
+																to={action.href(item)}
+																aria-label={action.label}
+																title={action.label}
+															>
+																{action.icon}
+															</Link>
 														</Button>
 													)
 												}
@@ -399,8 +446,17 @@ export function DataList({
 														<Button
 															key={index}
 															size="sm"
-															variant={action.variant || 'ghost'}
+															variant={
+																fixedLayout && action.variant === 'outline'
+																	? 'ghost'
+																	: action.variant || 'ghost'
+															}
+															className={
+																fixedLayout ? 'h-8 w-8 p-0' : undefined
+															}
 															onClick={() => action.onClick?.(item)}
+															aria-label={action.label}
+															title={action.label}
 														>
 															{action.icon}
 														</Button>
