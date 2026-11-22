@@ -1,5 +1,5 @@
-import { LoaderFunctionArgs, json } from '@remix-run/node'
-import { useLoaderData } from '@remix-run/react'
+import { ActionFunctionArgs, LoaderFunctionArgs, json } from '@remix-run/node'
+import { useFetcher, useLoaderData } from '@remix-run/react'
 import { format } from 'date-fns'
 import {
 	ActivityIcon,
@@ -10,9 +10,19 @@ import {
 	TrashIcon,
 	UserIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { DataList } from '~/components/data-list'
 import { SearchBar } from '~/components/search-bar'
+import {
+	AlertDialog,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from '~/components/ui/alert-dialog'
+import { Button } from '~/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
 import {
 	Dialog,
@@ -22,6 +32,48 @@ import {
 } from '~/components/ui/dialog'
 import { getTenantFilter, requireAdminAccess } from '~/utils/auth.server'
 import { filterAndPaginate, prisma } from '~/utils/db.server'
+import { createToastHeaders } from '~/utils/toast.server'
+
+/**
+ * Deletes the selected audit log entries. Global admins only: tenant admins
+ * shouldn't be able to erase the record of what they did. The deletion is
+ * deliberately not audited.
+ */
+export async function action({ request }: ActionFunctionArgs) {
+	const user = await requireAdminAccess(request)
+	if (!user.isGlobalAdmin) {
+		throw json(
+			{
+				error: 'Forbidden',
+				message: 'Only global admins can delete audit log entries',
+			},
+			{ status: 403 },
+		)
+	}
+
+	const formData = await request.formData()
+	const ids = formData
+		.getAll('id')
+		.filter((id): id is string => typeof id === 'string' && id.length > 0)
+	if (ids.length === 0) {
+		return json({ status: 'error' as const, deleted: 0 }, { status: 400 })
+	}
+
+	const { count } = await prisma.auditLog.deleteMany({
+		where: { id: { in: ids }, ...getTenantFilter(user) },
+	})
+
+	const noun = count === 1 ? 'entry' : 'entries'
+	return json(
+		{ status: 'success' as const, deleted: count },
+		{
+			headers: await createToastHeaders({
+				type: 'success',
+				description: `Deleted ${count} audit log ${noun}`,
+			}),
+		},
+	)
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await requireAdminAccess(request)
@@ -55,37 +107,38 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				},
 			}
 
-	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } = await filterAndPaginate({
-		request,
-		model: prisma.auditLog,
-		where: whereFilter,
-		searchFields: ['description', 'entityId'],
-		filterFields: ['entityType', 'action', 'tenantId'],
-		orderBy: [{ createdAt: 'desc' }],
-		select: {
-			id: true,
-			action: true,
-			entityType: true,
-			entityId: true,
-			description: true,
-			createdAt: true,
-			ipAddress: true,
-			userAgent: true,
-			user: {
-				select: {
-					username: true,
-					email: true,
+	const { data, totalPages, currentPage, defaultPageSize, pageSizeOptions } =
+		await filterAndPaginate({
+			request,
+			model: prisma.auditLog,
+			where: whereFilter,
+			searchFields: ['description', 'entityId'],
+			filterFields: ['entityType', 'action', 'tenantId'],
+			orderBy: [{ createdAt: 'desc' }],
+			select: {
+				id: true,
+				action: true,
+				entityType: true,
+				entityId: true,
+				description: true,
+				createdAt: true,
+				ipAddress: true,
+				userAgent: true,
+				user: {
+					select: {
+						username: true,
+						email: true,
+					},
 				},
-			},
-			tenant: {
-				select: {
-					id: true,
-					name: true,
+				tenant: {
+					select: {
+						id: true,
+						name: true,
+					},
 				},
+				metadata: true,
 			},
-			metadata: true,
-		},
-	})
+		})
 
 	// Get tenants for global admin filter dropdown
 	const tenants = user.isGlobalAdmin
@@ -114,6 +167,26 @@ export default function AuditsRoute() {
 	const data = useLoaderData<typeof loader>()
 	const { totalPages, currentPage, defaultPageSize, pageSizeOptions } = data
 	const [selectedAudit, setSelectedAudit] = useState<any>(null)
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+	const [confirmingDelete, setConfirmingDelete] = useState(false)
+	const deleteFetcher = useFetcher<typeof action>()
+	const isDeleting = deleteFetcher.state !== 'idle'
+
+	useEffect(() => {
+		if (
+			deleteFetcher.state === 'idle' &&
+			deleteFetcher.data?.status === 'success'
+		) {
+			setSelectedIds(new Set())
+			setConfirmingDelete(false)
+		}
+	}, [deleteFetcher.state, deleteFetcher.data])
+
+	const deleteSelected = () => {
+		const formData = new FormData()
+		selectedIds.forEach(id => formData.append('id', id))
+		deleteFetcher.submit(formData, { method: 'POST' })
+	}
 
 	const getActionIcon = (action: string) => {
 		switch (action) {
@@ -306,14 +379,51 @@ export default function AuditsRoute() {
 						},
 					]}
 					status={data.status}
-					
 					keyExtractor={audit => audit.id}
+					selectable={data.isGlobalAdmin}
+					selectedIds={selectedIds}
+					onSelectionChange={setSelectedIds}
+					bulkActions={[
+						{
+							label: 'Delete selected',
+							icon: <TrashIcon className="h-4 w-4" />,
+							variant: 'destructive' as const,
+							onClick: () => setConfirmingDelete(true),
+						},
+					]}
 					totalPages={totalPages}
 					currentPage={currentPage}
 					defaultPageSize={defaultPageSize}
 					pageSizeOptions={pageSizeOptions}
 				/>
 			</div>
+
+			<AlertDialog
+				open={confirmingDelete}
+				onOpenChange={open => !isDeleting && setConfirmingDelete(open)}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							Delete {selectedIds.size} audit log{' '}
+							{selectedIds.size === 1 ? 'entry' : 'entries'}?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							This cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+						<Button
+							variant="destructive"
+							onClick={deleteSelected}
+							disabled={isDeleting}
+						>
+							{isDeleting ? 'Deleting…' : 'Delete'}
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 
 			<Dialog
 				open={!!selectedAudit}
@@ -330,7 +440,7 @@ export default function AuditsRoute() {
 									<CardTitle>Basic Information</CardTitle>
 								</CardHeader>
 								<CardContent>
-									<dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+									<dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 										<div>
 											<dt className="font-medium text-gray-500">Action</dt>
 											<dd className="flex items-center gap-2">
@@ -364,7 +474,7 @@ export default function AuditsRoute() {
 									<CardTitle>Context</CardTitle>
 								</CardHeader>
 								<CardContent>
-									<dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+									<dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 										<div>
 											<dt className="font-medium text-gray-500">User</dt>
 											<dd>
