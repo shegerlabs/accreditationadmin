@@ -144,30 +144,72 @@ function addOrganisationSheet(
 	}
 }
 
-export async function createScreeningWorkbook(
-	participants: ExportParticipant[],
-) {
-	const workbook = new ExcelJS.Workbook()
-	workbook.created = new Date()
-
+function groupByOrganisation(participants: ExportParticipant[]) {
 	const byOrganisation = new Map<string, ExportParticipant[]>()
 	for (const participant of participants) {
 		const key = participant.organization.trim()
 		byOrganisation.set(key, [...(byOrganisation.get(key) ?? []), participant])
 	}
+	return [...byOrganisation.entries()].sort(([a], [b]) => a.localeCompare(b))
+}
 
+function newWorkbook() {
+	const workbook = new ExcelJS.Workbook()
+	workbook.created = new Date()
+	return workbook
+}
+
+/** One workbook with a sheet per organisation. */
+export async function createScreeningWorkbook(
+	participants: ExportParticipant[],
+) {
+	const workbook = newWorkbook()
 	const used = new Set<string>()
-	const organisations = [...byOrganisation.keys()].sort((a, b) =>
-		a.localeCompare(b),
-	)
-	for (const organization of organisations) {
+	for (const [organization, members] of groupByOrganisation(participants)) {
 		addOrganisationSheet(
 			workbook,
 			sheetName(organization, used),
 			organization,
-			byOrganisation.get(organization)!,
+			members,
 		)
 	}
-
 	return Buffer.from(await workbook.xlsx.writeBuffer())
+}
+
+/** File names: no characters Windows or macOS reject, unique ignoring case. */
+function fileName(organization: string, used: Set<string>) {
+	const base =
+		organization
+			.replace(/[<>:"/\\|?*]/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim()
+			.replace(/^\.+|\.+$/g, '')
+			.slice(0, 100)
+			.trim() || 'No organisation'
+	let name = base
+	for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base} (${n})`
+	used.add(name.toLowerCase())
+	return `${name}.xlsx`
+}
+
+/** A separate workbook per organisation, each with a single sheet. */
+export async function createScreeningWorkbooks(
+	participants: ExportParticipant[],
+) {
+	const used = new Set<string>()
+	const files: { name: string; content: Buffer }[] = []
+	for (const [organization, members] of groupByOrganisation(participants)) {
+		const workbook = newWorkbook()
+		addOrganisationSheet(
+			workbook,
+			sheetName(organization, new Set()),
+			organization,
+			members,
+		)
+		files.push({
+			name: fileName(organization, used),
+			content: Buffer.from(await workbook.xlsx.writeBuffer()),
+		})
+	}
+	return files
 }

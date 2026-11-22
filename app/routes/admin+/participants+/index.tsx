@@ -25,6 +25,9 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from '~/components/ui/dropdown-menu'
 import { Icon } from '~/components/ui/icon'
@@ -238,8 +241,12 @@ export default function IndexRoute() {
 	// Build export URL with either selected IDs or current filters
 	const nothingToExport = data.participants.length === 0
 
-	const buildExportUrl = (basePath: string) => {
+	const buildExportUrl = (
+		basePath: string,
+		extra: Record<string, string> = {},
+	) => {
 		const params = new URLSearchParams(searchParams)
+		for (const [key, value] of Object.entries(extra)) params.set(key, value)
 		if (selectedIds.size > 0) {
 			params.set('selectedIds', Array.from(selectedIds).join(','))
 		}
@@ -388,24 +395,32 @@ export default function IndexRoute() {
 										</Button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent align="end">
-										<DropdownMenuItem asChild disabled={nothingToExport}>
-											<a
-												href={buildExportUrl('/admin/resources/participants')}
-												className="flex items-center gap-2"
-											>
-												Export Excel
-											</a>
-										</DropdownMenuItem>
-										<DropdownMenuItem asChild disabled={nothingToExport}>
-											<a
-												href={buildExportUrl(
-													'/admin/resources/participants-screening',
-												)}
-												className="flex items-center gap-2"
-											>
-												Screening List (Excel)
-											</a>
-										</DropdownMenuItem>
+										<DropdownMenuSub>
+											<DropdownMenuSubTrigger disabled={nothingToExport}>
+												Excel
+											</DropdownMenuSubTrigger>
+											<DropdownMenuSubContent>
+												<DropdownMenuItem asChild>
+													<a
+														href={buildExportUrl(
+															'/admin/resources/participants-screening',
+														)}
+													>
+														One file, a tab per organisation
+													</a>
+												</DropdownMenuItem>
+												<DropdownMenuItem asChild>
+													<a
+														href={buildExportUrl(
+															'/admin/resources/participants-screening',
+															{ files: 'separate' },
+														)}
+													>
+														A file per organisation (ZIP)
+													</a>
+												</DropdownMenuItem>
+											</DropdownMenuSubContent>
+										</DropdownMenuSub>
 										<DropdownMenuItem asChild disabled={nothingToExport}>
 											<a
 												href={buildExportUrl(
@@ -413,7 +428,7 @@ export default function IndexRoute() {
 												)}
 												className="flex items-center gap-2"
 											>
-												VIP List with Photos (Word)
+												Word
 											</a>
 										</DropdownMenuItem>
 										<DropdownMenuItem asChild disabled={nothingToExport}>
@@ -421,7 +436,7 @@ export default function IndexRoute() {
 												href={buildExportUrl('/admin/resources/photos')}
 												className="flex items-center gap-2"
 											>
-												Download Photos
+												Photos
 											</a>
 										</DropdownMenuItem>
 									</DropdownMenuContent>
