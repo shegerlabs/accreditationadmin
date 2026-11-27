@@ -29,7 +29,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	}
 
 	// ?files=separate: a ZIP with one workbook per organisation instead of
-	// one workbook with a sheet per organisation.
+	// one workbook with everyone on a single sheet.
 	const separate = new URL(request.url).searchParams.get('files') === 'separate'
 
 	if (separate) {

@@ -1,8 +1,9 @@
 import ExcelJS from 'exceljs'
 import { type ExportParticipant } from '~/utils/participant-export.server'
 
-// Modelled on the security screening template: one sheet per organisation,
-// a "Company Name" block across rows 1-2, and red bold headers on row 3.
+// Modelled on the security screening template: red bold headers above the
+// rows. Either a workbook per organisation, each with the template's "Company
+// Name" block across rows 1-2, or everyone on one sheet without that block.
 
 type Column = {
 	header: string
@@ -76,14 +77,15 @@ function sheetName(organization: string, used: Set<string>) {
 	return name
 }
 
-function addOrganisationSheet(
+function addScreeningSheet(
 	workbook: ExcelJS.Workbook,
 	name: string,
-	organization: string,
+	organization: string | null,
 	participants: ExportParticipant[],
 ) {
+	const headerRowNumber = organization === null ? 1 : 3
 	const sheet = workbook.addWorksheet(name, {
-		views: [{ state: 'frozen', ySplit: 3 }],
+		views: [{ state: 'frozen', ySplit: headerRowNumber }],
 		pageSetup: {
 			paperSize: 9,
 			orientation: 'landscape',
@@ -94,26 +96,28 @@ function addOrganisationSheet(
 	})
 	sheet.columns = columns.map(c => ({ width: c.width }))
 
-	sheet.mergeCells('A1:A2')
-	sheet.mergeCells('B1:E2')
-	const label = sheet.getCell('A1')
-	label.value = 'Company Name'
-	label.font = { name: 'Times New Roman', size: 16, bold: true, color: red }
-	const company = sheet.getCell('B1')
-	company.value = organization
-	company.font = { name: 'Arial', size: 14, bold: true }
-	for (const cell of [label, company]) {
-		cell.alignment = {
-			vertical: 'middle',
-			horizontal: 'center',
-			wrapText: true,
+	if (organization !== null) {
+		sheet.mergeCells('A1:A2')
+		sheet.mergeCells('B1:E2')
+		const label = sheet.getCell('A1')
+		label.value = 'Company Name'
+		label.font = { name: 'Times New Roman', size: 16, bold: true, color: red }
+		const company = sheet.getCell('B1')
+		company.value = organization
+		company.font = { name: 'Arial', size: 14, bold: true }
+		for (const cell of [label, company]) {
+			cell.alignment = {
+				vertical: 'middle',
+				horizontal: 'center',
+				wrapText: true,
+			}
+			cell.border = { top: thick, left: thick, bottom: thick, right: thick }
 		}
-		cell.border = { top: thick, left: thick, bottom: thick, right: thick }
+		sheet.getRow(1).height = 24
+		sheet.getRow(2).height = 24
 	}
-	sheet.getRow(1).height = 24
-	sheet.getRow(2).height = 24
 
-	const headerRow = sheet.getRow(3)
+	const headerRow = sheet.getRow(headerRowNumber)
 	headerRow.height = 43.5
 	columns.forEach((column, index) => {
 		const cell = headerRow.getCell(index + 1)
@@ -139,8 +143,8 @@ function addOrganisationSheet(
 	}
 
 	sheet.autoFilter = {
-		from: { row: 3, column: 1 },
-		to: { row: 3, column: columns.length },
+		from: { row: headerRowNumber, column: 1 },
+		to: { row: headerRowNumber, column: columns.length },
 	}
 }
 
@@ -159,20 +163,17 @@ function newWorkbook() {
 	return workbook
 }
 
-/** One workbook with a sheet per organisation. */
+/** One workbook with everyone on a single sheet, ordered by organisation. */
 export async function createScreeningWorkbook(
 	participants: ExportParticipant[],
 ) {
 	const workbook = newWorkbook()
-	const used = new Set<string>()
-	for (const [organization, members] of groupByOrganisation(participants)) {
-		addOrganisationSheet(
-			workbook,
-			sheetName(organization, used),
-			organization,
-			members,
-		)
-	}
+	addScreeningSheet(
+		workbook,
+		'Screening list',
+		null,
+		groupByOrganisation(participants).flatMap(([, members]) => members),
+	)
 	return Buffer.from(await workbook.xlsx.writeBuffer())
 }
 
@@ -200,7 +201,7 @@ export async function createScreeningWorkbooks(
 	const files: { name: string; content: Buffer }[] = []
 	for (const [organization, members] of groupByOrganisation(participants)) {
 		const workbook = newWorkbook()
-		addOrganisationSheet(
+		addScreeningSheet(
 			workbook,
 			sheetName(organization, new Set()),
 			organization,

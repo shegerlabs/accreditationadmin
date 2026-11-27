@@ -406,7 +406,7 @@ export default function IndexRoute() {
 															'/admin/resources/participants-screening',
 														)}
 													>
-														One file, a tab per organisation
+														One file, everyone on one sheet
 													</a>
 												</DropdownMenuItem>
 												<DropdownMenuItem asChild>
